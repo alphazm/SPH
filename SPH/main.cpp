@@ -6,11 +6,13 @@
 #include <iomanip>
 #include "sph.cuh"
 
-constexpr float PARTICLE_SIZE = 10.0f;
+using namespace std;
 
 void errorCallback(int error, const char* description) {
     std::cerr << "GLFW Error: " << description << std::endl;
 }
+
+constexpr float PARTICLE_SIZE = 8.0f;
 
 // 1 = pixel on, 0 = pixel off
 const unsigned char font5x7[15][7] = {
@@ -45,6 +47,21 @@ const unsigned char font5x7[15][7] = {
     // :
     {0x00, 0x06, 0x06, 0x00, 0x06, 0x06, 0x00}
 };
+
+double mouseX, mouseY; int mouseButtonState = 0;
+
+void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos) {
+    mouseX = xpos; mouseY = ypos; 
+}
+
+void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) { 
+    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) 
+        mouseButtonState = 1; 
+    else if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) 
+        mouseButtonState = 2; 
+    else mouseButtonState = 0; 
+	
+}
 
 // Render a character at (x, y) with scale
 void renderChar(float x, float y, char c, float scale) {
@@ -97,6 +114,10 @@ int main() {
     glfwMakeContextCurrent(window);
     glViewport(0, 0, 800, 800);
 
+    glfwSetCursorPosCallback(window, cursorPositionCallback);
+    glfwSetMouseButtonCallback(window, mouseButtonCallback);
+  
+
     glewExperimental = GL_TRUE;
     if (glewInit() != GLEW_OK) {
         std::cerr << "Failed to initialize GLEW" << std::endl;
@@ -142,8 +163,13 @@ int main() {
     while (!glfwWindowShouldClose(window)) {
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // Update simulation (VBO updated internally)
-        stepSimulation(particles, nullptr, nullptr, nullptr, cudaVBO);
+        float simX = (mouseX / 800.0) * 2.0;
+        float simY = 2.0 - (mouseY / 800.0) * 2.0;
+        float2 mousePos = make_float2(simX, simY);
+        float interactionStrength = (mouseButtonState == 1) ? 50000.0f : (mouseButtonState == 2) ? -50000.0f : 0.0f;
+    
+		// Update simulation
+        stepSimulation(particles, nullptr, nullptr, nullptr, cudaVBO, mousePos, interactionStrength);
 
         // Update FPS
         double currentTime = glfwGetTime();
@@ -175,6 +201,7 @@ int main() {
     cudaGraphicsUnregisterResource(cudaVBO);
     glDeleteBuffers(1, &vbo);
     delete[] particles;
+	cleanupSimulation();
     glfwDestroyWindow(window);
     glfwTerminate();
 
