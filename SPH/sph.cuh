@@ -32,7 +32,7 @@ struct Particle {
 };
 
 __global__ void computeDensityPressure(Particle* particles, int* grid, int* cellStart, int* cellEnd);
-__global__ void computeForces(Particle* particles, int* grid, int* cellStart, int* cellEnd);
+__global__ void computeForces(Particle* particles, int* grid, int* cellStart, int* cellEnd, float2 mousePos, float interactionStrength);
 __global__ void integrate(Particle* particles);
 void initSimulation(Particle* particles, cudaGraphicsResource* cudaVBO);
 void stepSimulation(Particle* particles, int* grid, int* cellStart, int* cellEnd, cudaGraphicsResource* cudaVBO, float2 mousePos, float interactionStrength);

@@ -140,10 +140,15 @@
     <CudaCompile Include="sph.cu" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="main.h" />
+    <ClInclude Include="sph.h" />
     <ClInclude Include="sph.cuh" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="CUDA_main.cpp" />
+    <ClCompile Include="serial_main.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="sph.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

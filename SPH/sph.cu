@@ -111,7 +111,7 @@ __global__ void computeForces(Particle* particles, int* grid, int* cellStart, in
         }
     }
 
-   
+
 
     float forceMag = sqrtf(force.x * force.x + force.y * force.y);
     if (forceMag > 1000.0f * p.density) {
@@ -175,14 +175,23 @@ void initSimulation(Particle* particles, cudaGraphicsResource* cudaVBO) {
     CUDA_CHECK(cudaMemcpy(particles, d_particles, N * sizeof(Particle), cudaMemcpyDeviceToHost));
 }
 
+__global__ void updateVBO(float2* vboPtr, Particle* particles) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= N) return;
+    if (particles[i].valid) {
+        vboPtr[i] = particles[i].pos;
+    }
+    else {
+        vboPtr[i] = make_float2(-1.0f, -1.0f);
+    }
+}
+
 void stepSimulation(Particle* particles, int* grid, int* cellStart, int* cellEnd, cudaGraphicsResource* cudaVBO, float2 mousePos, float interactionStrength) {
-    int threadsPerBlock = 256;
+    int threadsPerBlock = 128;
     int blocks = (N + threadsPerBlock - 1) / threadsPerBlock;
 
     computeDensityPressure << <blocks, threadsPerBlock >> > (d_particles, nullptr, nullptr, nullptr);
-    CUDA_CHECK(cudaDeviceSynchronize());
     computeForces << <blocks, threadsPerBlock >> > (d_particles, nullptr, nullptr, nullptr, mousePos, interactionStrength);
-    CUDA_CHECK(cudaDeviceSynchronize());
     integrate << <blocks, threadsPerBlock >> > (d_particles);
     CUDA_CHECK(cudaDeviceSynchronize());
 
@@ -192,16 +201,7 @@ void stepSimulation(Particle* particles, int* grid, int* cellStart, int* cellEnd
     CUDA_CHECK(cudaGraphicsMapResources(1, &cudaVBO, 0));
     CUDA_CHECK(cudaGraphicsResourceGetMappedPointer((void**)&vboPtr, &size, cudaVBO));
     // Copy positions manually to skip invalid particles
-    for (int i = 0; i < N; i++) {
-        if (particles[i].valid) {
-            CUDA_CHECK(cudaMemcpy(&vboPtr[i], &d_particles[i].pos, sizeof(float2), cudaMemcpyDeviceToDevice));
-        }
-        else {
-            // Set to a safe position (e.g., outside visible area)
-            float2 safePos = make_float2(-1.0f, -1.0f);
-            CUDA_CHECK(cudaMemcpy(&vboPtr[i], &safePos, sizeof(float2), cudaMemcpyHostToDevice));
-        }
-    }
+	updateVBO << <blocks, threadsPerBlock >> > (vboPtr, d_particles);
     CUDA_CHECK(cudaGraphicsUnmapResources(1, &cudaVBO, 0));
 
     CUDA_CHECK(cudaMemcpy(particles, d_particles, N * sizeof(Particle), cudaMemcpyDeviceToHost));
