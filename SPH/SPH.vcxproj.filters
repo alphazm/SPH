@@ -29,6 +29,12 @@
     <ClInclude Include="main.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="openMP.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MPI.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="CUDA_main.cpp">
@@ -41,6 +47,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="openMP_sph.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MPI_sph.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

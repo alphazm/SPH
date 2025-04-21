@@ -1,5 +1,6 @@
 #include "main.h"
 #include "openMP.h"
+#include "MPI.h"
 #include <iostream>
 
 void errorCallback(int error, const char* description) {
@@ -58,9 +59,10 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
         mouseButtonState = 0;
 }
 
-int main(){
+int main(int argc, char** argv){
     //serial_main();
 	//CUDA_main();
-	openMP_main();
+	//openMP_main();
+	MPI_main(argc, argv);
 	return 0;
 }

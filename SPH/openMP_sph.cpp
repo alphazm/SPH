@@ -5,6 +5,7 @@
 #include <omp.h>
 #include <chrono>
 #include <string>
+#include <sstream> // Include for std::wstringstream
 #include <cstdlib>
 
 #pragma comment (lib, "OpenGL32.lib")
@@ -170,11 +171,16 @@ public:
     void endFrame(HWND hwnd) {
         auto end = chrono::high_resolution_clock::now();
         float fps = 1.0f / chrono::duration<float>(end - start).count();
-        SetWindowText(hwnd, (L"SPH Fluid Simulation - FPS: " + to_wstring((int)fps)).c_str());
+
+        // Use std::wstringstream to construct the string
+        std::wstringstream wss;
+        wss << L"SPH Fluid Simulation - FPS: " << static_cast<int>(fps);
+        SetWindowTextW(hwnd, wss.str().c_str());
     }
 private:
     chrono::high_resolution_clock::time_point start;
 };
+
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
@@ -203,10 +209,10 @@ int openMP_main() {
     WNDCLASS wc = { 0 };
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
-    wc.lpszClassName = L"SPHSim";
+    wc.lpszClassName = "SPHSim";
     RegisterClass(&wc);
 
-    HWND hwnd = CreateWindowEx(0, wc.lpszClassName, L"SPH Fluid Simulation", WS_OVERLAPPEDWINDOW,
+    HWND hwnd = CreateWindowEx(0, wc.lpszClassName, "SPH Fluid Simulation", WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT, WIDTH, HEIGHT, nullptr, nullptr, hInstance, nullptr);
 
     HDC hdc = GetDC(hwnd);

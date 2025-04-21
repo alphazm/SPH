@@ -71,7 +71,7 @@ void serial_computeForces(std::vector<Particle>& particles, float2 mousePos, flo
 			force.x += pressureForce.x + viscForce * relVel.x + ljF.x;
 			force.y += pressureForce.y + viscForce * relVel.y + ljF.y;
 		}
-		force.y -= 9.81f * p.density;
+		force.y -= 10.0f * p.density;
 		if (interactionStrength != 0.0f) {
 			float2 r = { p.pos.x - mousePos.x, p.pos.y - mousePos.y };
 			float r2 = r.x * r.x + r.y * r.y;

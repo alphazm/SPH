@@ -200,7 +200,6 @@ void stepSimulation(Particle* particles, int* grid, int* cellStart, int* cellEnd
     size_t size;
     CUDA_CHECK(cudaGraphicsMapResources(1, &cudaVBO, 0));
     CUDA_CHECK(cudaGraphicsResourceGetMappedPointer((void**)&vboPtr, &size, cudaVBO));
-    // Copy positions manually to skip invalid particles
 	updateVBO << <blocks, threadsPerBlock >> > (vboPtr, d_particles);
     CUDA_CHECK(cudaGraphicsUnmapResources(1, &cudaVBO, 0));
 
