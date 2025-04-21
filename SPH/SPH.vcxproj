@@ -109,6 +109,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <OpenMPSupport>true</OpenMPSupport>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -140,6 +141,7 @@
     <CudaCompile Include="sph.cu" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="openMP.h" />
     <ClInclude Include="main.h" />
     <ClInclude Include="sph.h" />
     <ClInclude Include="sph.cuh" />
@@ -148,6 +150,7 @@
     <ClCompile Include="CUDA_main.cpp" />
     <ClCompile Include="serial_main.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="openMP_sph.cpp" />
     <ClCompile Include="sph.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

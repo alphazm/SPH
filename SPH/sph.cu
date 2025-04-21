@@ -91,7 +91,7 @@ __global__ void computeForces(Particle* particles, int* grid, int* cellStart, in
         force.x += pressureForce.x + viscForce * relVel.x + ljF.x;
         force.y += pressureForce.y + viscForce * relVel.y + ljF.y;
     }
-    force.y -= 9.81f * p.density;
+    force.y -= 10.0f * p.density;
 
     float2 mouseForce = make_float2(0, 0);
     if (interactionStrength != 0.0f) {
