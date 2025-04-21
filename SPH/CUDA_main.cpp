@@ -84,6 +84,8 @@ int CUDA_main(){
     double lastTime = glfwGetTime();
     int frameCount = 0;
     double fps = 0.0;
+	int totalFrame = 0;
+	int totalFrameRender = 0;
 
     while (!glfwWindowShouldClose(window)) {
         glClear(GL_COLOR_BUFFER_BIT);
@@ -101,6 +103,8 @@ int CUDA_main(){
         frameCount++;
         if (currentTime - lastTime >= 1.0) {
             fps = frameCount / (currentTime - lastTime);
+            totalFrame += fps;
+			totalFrameRender++;
             frameCount = 0;
             lastTime = currentTime;
         }
@@ -129,6 +133,7 @@ int CUDA_main(){
     cleanupSimulation();
     glfwDestroyWindow(window);
     glfwTerminate();
-
+	double avgFPS = static_cast<double>(totalFrame) / totalFrameRender;
+	std::cout << "Average FPS: " << avgFPS << " total frame render : " << totalFrameRender <<std::endl;
     return 0;
 }

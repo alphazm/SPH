@@ -58,7 +58,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
 }
 
 int main(){
-    //serial_main();
-	CUDA_main();
+    serial_main();
+	//CUDA_main();
 	return 0;
 }
