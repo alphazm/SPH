@@ -49,7 +49,7 @@ int serial_main() {
 		return -1;
 	}
 
-	std::vector<Particle> particles;
+	vector<Particle> particles;
 	serial_initSimulation(particles);
 
 	glClearColor(0.1f, 0.1f, 0.2f, 1.0f);
@@ -87,10 +87,12 @@ int serial_main() {
 		glPointSize(PARTICLE_SIZE);
 		glBegin(GL_POINTS);
 		glColor3f(0.0f, 0.5f, 1.0f);
-		for (const auto& p : particles) {
-			if (p.valid) {
+		for (size_t i = 0; i < particles.size(); ++i) {
+			const auto& p = particles[i];
+			if (p.valid && !std::isnan(p.pos.x) && !std::isnan(p.pos.y)) {
 				glVertex2f(p.pos.x, p.pos.y);
 			}
+			
 		}
 		glEnd();
 

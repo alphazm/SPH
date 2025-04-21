@@ -63,6 +63,6 @@ int main(int argc, char** argv){
     //serial_main();
 	//CUDA_main();
 	//openMP_main();
-	MPI_main(argc, argv);
+	//MPI_main(argc, argv);
 	return 0;
 }

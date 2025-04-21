@@ -16,7 +16,7 @@ using namespace std;
 // Simulation parameters
 const int WINDOW_WIDTH = 800;
 const int WINDOW_HEIGHT = 800;
-const int PARTICLE_COUNT = 600;
+const int PARTICLE_COUNT = 500;
 const float TIME_STEP = 0.0005f;
 const float PARTICLE_RADIUS = 9.0f;
 const float REST_DENSITY = 1000.0f;

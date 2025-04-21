@@ -1,4 +1,6 @@
 #include "sph.h"
+#include <iostream>
+using namespace std;
 
 // Poly6 kernel
 float serial_poly6(float r2, float h) {
