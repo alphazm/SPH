@@ -218,6 +218,8 @@ int MPI_main(int argc, char** argv) {
         mpi_initParticles();
         auto lastTime = std::chrono::high_resolution_clock::now();
         int frames = 0;
+        int totalFrame = 0;
+        int totalFrameRender = 0;
 
         while (!glfwWindowShouldClose(window)) {
             computeDensityPressure();
@@ -233,12 +235,18 @@ int MPI_main(int argc, char** argv) {
             float elapsed = std::chrono::duration<float>(now - lastTime).count();
             if (elapsed >= 1.0f) {
                 std::cout << "FPS: " << frames << std::endl;
+				totalFrame += frames;
+                totalFrameRender++;
                 frames = 0;
                 lastTime = now;
             }
         }
         glfwTerminate();
+        double avgFPS = static_cast<double>(totalFrame) / totalFrameRender;
+        std::cout << "Average FPS: " << avgFPS << " total frame recode : " << totalFrameRender << std::endl;
+
     }
     MPI_Finalize();
+
     return 0;
 }

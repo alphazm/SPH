@@ -39,6 +39,7 @@ struct Particle {
 vector<Particle> particles(N);
 XMFLOAT2 mousePos = { 0.0f, 0.0f };
 float interactionStrength = 0.0f;
+bool isPushing = true;
 
 // Kernel functions
 inline float openMP_poly6(float r2, float h) {
@@ -213,8 +214,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         mousePos = { x / (float)WIDTH, (1.0f - y / (float)HEIGHT) * 1.5f };
         return 0;
     }
-    case WM_LBUTTONDOWN: interactionStrength = 50000.0f; return 0;
+    case WM_LBUTTONDOWN: interactionStrength = isPushing ? 50000.0f : -5000.0f; return 0;
     case WM_LBUTTONUP: interactionStrength = 0.0f; return 0;
+    case WM_RBUTTONDOWN: isPushing = !isPushing; return 0;
     }
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
@@ -251,6 +253,10 @@ int openMP_main() {
     initParticles();
 
     MSG msg;
+    auto lastTime = chrono::high_resolution_clock::now();
+    int frameCount = 0;
+    float avgFPS = 0.0f;
+
     while (true) {
         while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) return 0;
@@ -261,6 +267,19 @@ int openMP_main() {
         update();
         display();
         SwapBuffers(hdc);
+
+        frameCount++;
+        auto currentTime = chrono::high_resolution_clock::now();
+        chrono::duration<float> elapsed = currentTime - lastTime;
+        if (elapsed.count() >= 1.0f) {
+            avgFPS = frameCount / elapsed.count();
+            frameCount = 0;
+            lastTime = currentTime;
+
+            char title[256];
+            sprintf_s(title, "SPH Fluid Simulation - Avg FPS: %.2f | Mode: %s", avgFPS, isPushing ? "Push" : "Pull");
+            SetWindowTextA(hwnd, title);
+        }
     }
 
     return 0;

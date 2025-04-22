@@ -135,6 +135,6 @@ int CUDA_main(){
     glfwDestroyWindow(window);
     glfwTerminate();
 	double avgFPS = static_cast<double>(totalFrame) / totalFrameRender;
-	std::cout << "Average FPS: " << avgFPS << " total frame render : " << totalFrameRender <<std::endl;
+	std::cout << "Average FPS: " << avgFPS << " total frame recode : " << totalFrameRender <<std::endl;
     return 0;
 }
