@@ -5,201 +5,218 @@
 #include <omp.h>
 #include <chrono>
 #include <string>
-#include <sstream> // Include for std::wstringstream
 #include <cstdlib>
+#include <DirectXMath.h>
 
 #pragma comment (lib, "OpenGL32.lib")
 
 using namespace std;
+using namespace DirectX;
 
-// Constants
-const int WIDTH = 500;
-const int HEIGHT = 600;
-const int NUM_PARTICLES = 500;
-const float TIME_STEP = 0.003f;
-const float PARTICLE_RADIUS = 10.0f;
-const float REST_DENSITY = 1000.0f;
-const float GAS_CONSTANT = 2000.0f;
-const float VISCOSITY = 250.0f;
-const float MASS = 65.0f;
-const float H = 16.0f;
-const float EPSILON = 1.0f;
-const float GRAVITY_X = 0.0f;
-const float GRAVITY_Y = -9.8f * 100.0f;
-const float RESTITUTION = -0.8f; // Bounce factor
+#define N 500
+#define H 0.15f
+#define DT 0.0005f
+#define MASS 0.05f
+#define VISCOSITY 0.3f
+#define STIFFNESS 1000.0f
+#define REST_DENSITY 1000.0f
+#define DAMPING 0.9f
+#define MAX_VEL 5.0f
+#define SIGMA 0.05f
+#define EPSILON 1.0f
+#define WIDTH 800
+#define HEIGHT 600
+#define PARTICLE_RADIUS 8.0f
 
-// [MOUSE]
-const float MOUSE_FORCE = 500000.0f;
-const float MOUSE_RADIUS = 500.0f;
-
-float mouseX = 0.0f, mouseY = 0.0f;
-bool mouseDown = false;
-
-// Particle structure
 struct Particle {
-    float x, y;
-    float vx, vy;
-    float ax, ay;
-    float density, pressure;
+    XMFLOAT2 pos;
+    XMFLOAT2 vel;
+    float density;
+    float pressure;
+    bool valid;
 };
 
-vector<Particle> particles(NUM_PARTICLES);
+vector<Particle> particles(N);
+XMFLOAT2 mousePos = { 0.0f, 0.0f };
+float interactionStrength = 0.0f;
 
-// SPH Kernel functions
-float poly6(float r2) {
-    float h2 = H * H;
-    return (r2 >= 0 && r2 <= h2) ? (315.0f / (64.0f * 3.141592f * powf(H, 9))) * powf(h2 - r2, 3) : 0.0f;
+// Kernel functions
+inline float openMP_poly6(float r2, float h) {
+    float h2 = h * h;
+    if (r2 > h2) return 0.0f;
+    float term = h2 - r2;
+    return (315.0f / (64.0f * 3.14159f * powf(h, 9))) * term * term * term;
 }
 
-float spiky(float r) {
-    return (r > 0 && r <= H) ? (-45.0f / (3.141592f * pow(H, 6))) * pow(H - r, 2) : 0.0f;
+inline XMFLOAT2 spikyGrad(XMFLOAT2 r, float r_len, float h) {
+    if (r_len > h || r_len < 1e-6f) return { 0.0f, 0.0f };
+    float coeff = -45.0f / (3.14159f * powf(h, 6)) * powf(h - r_len, 2) / r_len;
+    return { coeff * r.x, coeff * r.y };
 }
 
-float visco_lap(float r) {
-    return (r >= 0 && r <= H) ? (45.0f / (3.141592f * pow(H, 6))) * (H - r) : 0.0f;
+inline float openMP_viscosityLaplacian(float r, float h) {
+    if (r > h) return 0.0f;
+    return 45.0f / (3.14159f * powf(h, 6)) * (h - r);
 }
 
-// Simulation update
-void update_simulation() {
+inline XMFLOAT2 ljForce(XMFLOAT2 r, float r_len, float sigma, float epsilon) {
+    if (r_len >= 2.5f * sigma || r_len < 1e-6f) return { 0.0f, 0.0f };
+    float inv_r = 1.0f / r_len;
+    float sigma_over_r = sigma * inv_r;
+    float sigma_over_r2 = sigma_over_r * sigma_over_r;
+    float sigma_over_r6 = sigma_over_r2 * sigma_over_r2 * sigma_over_r2;
+    float sigma_over_r12 = sigma_over_r6 * sigma_over_r6;
+    float inv_r2 = inv_r * inv_r;
+    float coeff = 24.0f * epsilon * (2.0f * sigma_over_r12 - sigma_over_r6) * inv_r2;
+    return { coeff * r.x, coeff * r.y };
+}
+
+// Physics
+void computeDensityPressureOMP() {
 #pragma omp parallel for
-    for (int i = 0; i < NUM_PARTICLES; ++i) {
-        Particle& pi = particles[i];
-        pi.density = 0.0f;
-        for (int j = 0; j < NUM_PARTICLES; ++j) {
-            float dx = particles[j].x - pi.x;
-            float dy = particles[j].y - pi.y;
-            float r2 = dx * dx + dy * dy;
-            pi.density += MASS * poly6(r2);
-        }
-        pi.pressure = GAS_CONSTANT * (pi.density - REST_DENSITY);
-    }
-
-#pragma omp parallel for
-    for (int i = 0; i < NUM_PARTICLES; ++i) {
-        Particle& pi = particles[i];
-        pi.ax = 0.0f; pi.ay = 0.0f;
-        for (int j = 0; j < NUM_PARTICLES; ++j) {
-            if (i == j) continue;
-            float dx = particles[j].x - pi.x;
-            float dy = particles[j].y - pi.y;
-            float r = sqrtf(dx * dx + dy * dy);
-            if (r < EPSILON || r > H) continue;
-
-            float pressure_term = -MASS * (pi.pressure + particles[j].pressure) / (2 * particles[j].density) * spiky(r);
-
-            float force_x = pressure_term * dx / r;
-            float force_y = pressure_term * dy / r;
-
-            const float MAX_FORCE = 10000.0f;
-            if (fabs(force_x) > MAX_FORCE) force_x = (force_x > 0) ? MAX_FORCE : -MAX_FORCE;
-            if (fabs(force_y) > MAX_FORCE) force_y = (force_y > 0) ? MAX_FORCE : -MAX_FORCE;
-
-            pi.ax += force_x;
-            pi.ay += force_y;
-
-            float visc = visco_lap(r);
-            float visc_x = VISCOSITY * MASS * (particles[j].vx - pi.vx) / particles[j].density * visc;
-            float visc_y = VISCOSITY * MASS * (particles[j].vy - pi.vy) / particles[j].density * visc;
-            pi.ax += visc_x;
-            pi.ay += visc_y;
-        }
-
-        pi.ax += GRAVITY_X;
-        pi.ay += GRAVITY_Y;
-    }
-
-#pragma omp parallel for
-    for (int i = 0; i < NUM_PARTICLES; ++i) {
+    for (int i = 0; i < N; ++i) {
         Particle& p = particles[i];
+        p.density = 0.0f;
+        for (int j = 0; j < N; ++j) {
+            XMFLOAT2 r = { p.pos.x - particles[j].pos.x, p.pos.y - particles[j].pos.y };
+            float r2 = r.x * r.x + r.y * r.y;
+            if (r2 < H * H) {
+                p.density += MASS * openMP_poly6(r2, H);
+            }
+        }
+        p.pressure = STIFFNESS * (p.density - REST_DENSITY);
+        if (p.pressure < 0.0f) p.pressure = 0.0f;
+    }
+}
 
-        // [MOUSE] Push effect
-        if (mouseDown) {
-            float mx = mouseX;
-            float my = HEIGHT - mouseY;  // Flip Y to match OpenGL coords
-            float dx = p.x - mx;
-            float dy = p.y - my;
-            float dist2 = dx * dx + dy * dy;
+void computeForcesOMP() {
+#pragma omp parallel for
+    for (int i = 0; i < N; ++i) {
+        Particle& p = particles[i];
+        if (!p.valid) continue;
 
-            if (dist2 < MOUSE_RADIUS * MOUSE_RADIUS && dist2 > 1.0f) {
-                float dist = sqrtf(dist2);
-                float force = MOUSE_FORCE / dist2;
+        XMFLOAT2 force = { 0.0f, 0.0f };
 
-                p.vx += (dx / dist) * force * TIME_STEP;
-                p.vy += (dy / dist) * force * TIME_STEP;
+        for (int j = 0; j < N; ++j) {
+            if (i == j || !particles[j].valid) continue;
+            XMFLOAT2 r = { p.pos.x - particles[j].pos.x, p.pos.y - particles[j].pos.y };
+            float r2 = r.x * r.x + r.y * r.y;
+            if (r2 >= H * H) continue;
+            float r_len = sqrtf(r2);
+            XMFLOAT2 grad = spikyGrad(r, r_len, H);
+            float pressureTerm = (p.pressure + particles[j].pressure) / (2.0f * particles[j].density);
+            XMFLOAT2 pressureForce = { -MASS * pressureTerm * grad.x, -MASS * pressureTerm * grad.y };
+            XMFLOAT2 relVel = { particles[j].vel.x - p.vel.x, particles[j].vel.y - p.vel.y };
+            float viscForce = VISCOSITY * MASS * openMP_viscosityLaplacian(r_len, H) / particles[j].density;
+            XMFLOAT2 ljF = ljForce(r, r_len, SIGMA, EPSILON);
+            force.x += pressureForce.x + viscForce * relVel.x + ljF.x;
+            force.y += pressureForce.y + viscForce * relVel.y + ljF.y;
+        }
+
+        force.y -= 10.0f * p.density;
+
+        // Mouse interaction
+        if (interactionStrength != 0.0f) {
+            XMFLOAT2 r = { p.pos.x - mousePos.x, p.pos.y - mousePos.y };
+            float r2 = r.x * r.x + r.y * r.y;
+            if (r2 < 0.25f * 0.25f) {
+                float r_len = sqrtf(r2);
+                if (r_len > 1e-6f) {
+                    float forceMag = interactionStrength * (0.25f - r_len) / 0.25f;
+                    force.x += forceMag * r.x / r_len;
+                    force.y += forceMag * r.y / r_len;
+                }
             }
         }
 
-        p.vx += TIME_STEP * p.ax;
-        p.vy += TIME_STEP * p.ay;
-        p.x += TIME_STEP * p.vx;
-        p.y += TIME_STEP * p.vy;
+        float forceMag = sqrtf(force.x * force.x + force.y * force.y);
+        if (forceMag > 1000.0f * p.density) {
+            float scale = 1000.0f * p.density / forceMag;
+            force.x *= scale;
+            force.y *= scale;
+        }
 
-        p.vx *= 0.995f;
-        p.vy *= 0.995f;
-
-        if (p.x < 0) {
-            p.vx *= RESTITUTION;
-            p.x = 0;
-        }
-        if (p.x > WIDTH) {
-            p.vx *= RESTITUTION;
-            p.x = WIDTH;
-        }
-        if (p.y < 0) {
-            p.vy *= RESTITUTION;
-            p.y = 0;
-        }
-        if (p.y > HEIGHT) {
-            p.vy *= RESTITUTION;
-            p.y = HEIGHT;
-        }
+        p.vel.x += DT * force.x / p.density;
+        p.vel.y += DT * force.y / p.density;
     }
 }
 
-void draw_particles() {
+void initParticles() {
+    particles.resize(N);
+    for (int i = 0; i < N; i++) {
+        particles[i].pos = { 0.7f + 0.05f * (i % 20), 1.5f - 0.05f * (i / 20) };
+        particles[i].vel = { 0.0f, 0.0f };
+        particles[i].density = REST_DENSITY;
+        particles[i].pressure = 0.0f;
+        particles[i].valid = true;
+    }
+}
+
+void integrateOMP() {
+#pragma omp parallel for
+    for (int i = 0; i < N; ++i) {
+        Particle& p = particles[i];
+
+        //p.vel.y -= 9.81f * DT;
+        if (!p.valid) continue;
+        p.pos.x += DT * p.vel.x;
+        p.pos.y += DT * p.vel.y;
+
+        float velMag = sqrtf(p.vel.x * p.vel.x + p.vel.y * p.vel.y);
+        if (velMag > MAX_VEL) {
+            float scale = MAX_VEL / velMag;
+            p.vel.x *= scale;
+            p.vel.y *= scale;
+        }
+
+        if (p.pos.x < 0.05f) { p.pos.x = 0.05f; p.vel.x = fabsf(p.vel.x) * DAMPING; }
+        if (p.pos.x > 1.95f) { p.pos.x = 1.95f; p.vel.x = -fabsf(p.vel.x) * DAMPING; }
+        if (p.pos.y < 0.05f) { p.pos.y = 0.05f; p.vel.y = fabsf(p.vel.y) * DAMPING; }
+        if (p.pos.y > 1.95f) { p.pos.y = 1.95f; p.vel.y = -fabsf(p.vel.y) * DAMPING; }
+    }
+}
+
+void display() {
     glClear(GL_COLOR_BUFFER_BIT);
+
+    // Enable point smoothing for nicer points
+    glEnable(GL_POINT_SMOOTH);
+    glPointSize(PARTICLE_RADIUS);
+
     glBegin(GL_POINTS);
-    for (const Particle& p : particles) {
-        glVertex2f(p.x / (WIDTH / 2.0f) - 1.0f, p.y / (HEIGHT / 2.0f) - 1.0f);
+    for (const auto& p : particles) {
+        if (p.valid) {
+            // Map coordinates to screen space
+            float pressure_normalized = min(1.0f, p.pressure / (STIFFNESS * REST_DENSITY * 0.5f));
+            glColor3f(0.2f + 0.8f * pressure_normalized, 0.6f + 0.4f * pressure_normalized, 1.0f);
+            glVertex2f(p.pos.x, p.pos.y);
+        }
     }
     glEnd();
+
+    glDisable(GL_POINT_SMOOTH);
 }
 
-class FPSCounter {
-public:
-    void startFrame() { start = chrono::high_resolution_clock::now(); }
-    void endFrame(HWND hwnd) {
-        auto end = chrono::high_resolution_clock::now();
-        float fps = 1.0f / chrono::duration<float>(end - start).count();
+void update() {
+    computeDensityPressureOMP();
+    computeForcesOMP();
+    integrateOMP();
+}
 
-        // Use std::wstringstream to construct the string
-        std::wstringstream wss;
-        wss << L"SPH Fluid Simulation - FPS: " << static_cast<int>(fps);
-        SetWindowTextW(hwnd, wss.str().c_str());
-    }
-private:
-    chrono::high_resolution_clock::time_point start;
-};
-
-
-LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    switch (msg) {
-    case WM_LBUTTONDOWN:
-        mouseDown = true;
-        break;
-    case WM_LBUTTONUP:
-        mouseDown = false;
-        break;
-    case WM_MOUSEMOVE:
-        mouseX = LOWORD(lParam);
-        mouseY = HIWORD(lParam);
-        break;
-    case WM_CLOSE:
-    case WM_DESTROY:
-        PostQuitMessage(0);
+// Windows + OpenGL Boilerplate
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    switch (uMsg) {
+    case WM_CLOSE: PostQuitMessage(0); return 0;
+    case WM_MOUSEMOVE: {
+        int x = LOWORD(lParam);
+        int y = HIWORD(lParam);
+        mousePos = { x / (float)WIDTH, (1.0f - y / (float)HEIGHT) * 1.5f };
         return 0;
     }
-    return DefWindowProc(hwnd, msg, wParam, lParam);
+    case WM_LBUTTONDOWN: interactionStrength = 50000.0f; return 0;
+    case WM_LBUTTONUP: interactionStrength = 0.0f; return 0;
+    }
+    return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
 int openMP_main() {
@@ -207,60 +224,44 @@ int openMP_main() {
     int nCmdShow = SW_SHOW;
 
     WNDCLASS wc = { 0 };
-    wc.lpfnWndProc = WndProc;
+    wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
-    wc.lpszClassName = "SPHSim";
+    wc.lpszClassName = "SPHWindow";
     RegisterClass(&wc);
 
-    HWND hwnd = CreateWindowEx(0, wc.lpszClassName, "SPH Fluid Simulation", WS_OVERLAPPEDWINDOW,
+    HWND hwnd = CreateWindowEx(0, "SPHWindow", "SPH Fluid Simulation", WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT, WIDTH, HEIGHT, nullptr, nullptr, hInstance, nullptr);
+    ShowWindow(hwnd, nCmdShow);
 
     HDC hdc = GetDC(hwnd);
-    PIXELFORMATDESCRIPTOR pfd = { sizeof(PIXELFORMATDESCRIPTOR), 1, PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,
-        PFD_TYPE_RGBA, 32, 0,0,0,0,0,0,0,0,0,0,0,0, 24, 8, 0, PFD_MAIN_PLANE, 0, 0, 0, 0 };
+    PIXELFORMATDESCRIPTOR pfd = { sizeof(PIXELFORMATDESCRIPTOR), 1, PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER, PFD_TYPE_RGBA, 32 };
     SetPixelFormat(hdc, ChoosePixelFormat(hdc, &pfd), &pfd);
-
     HGLRC hglrc = wglCreateContext(hdc);
     wglMakeCurrent(hdc, hglrc);
 
-    ShowWindow(hwnd, nCmdShow);
-
-    // Initialize particles in a centered grid
-    int gridCols = (int)sqrt(NUM_PARTICLES);
-    int gridRows = NUM_PARTICLES / gridCols;
-    float spacing = PARTICLE_RADIUS * 1.5f;
-    float offsetX = (WIDTH - gridCols * spacing) / 2.0f;
-    float offsetY = (HEIGHT - gridRows * spacing) / 2.0f;
-    int idx = 0;
-
-    for (int i = 0; i < gridRows; ++i) {
-        for (int j = 0; j < gridCols && idx < NUM_PARTICLES; ++j) {
-            particles[idx].x = offsetX + j * spacing;
-            particles[idx].y = offsetY + i * spacing;
-            particles[idx].vx = particles[idx].vy = particles[idx].ax = particles[idx].ay = 0.0f;
-            idx++;
-        }
-    }
-
-    glPointSize(PARTICLE_RADIUS);
+    // Set up OpenGL projection and viewport
+    glViewport(0, 0, WIDTH, HEIGHT);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glOrtho(-1, 1, -1, 1, -1, 1);
+    glOrtho(0, 2, 0, 2, -1, 1); // Match serial version
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+
+    // Removed glOrtho
+    initParticles();
 
     MSG msg;
-    FPSCounter fps;
     while (true) {
         while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) return 0;
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
-        fps.startFrame();
-        update_simulation();
-        draw_particles();
+
+        update();
+        display();
         SwapBuffers(hdc);
-        fps.endFrame(hwnd);
     }
 
-	return 0;
+    return 0;
 }

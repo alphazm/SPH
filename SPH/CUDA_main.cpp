@@ -108,6 +108,7 @@ int CUDA_main(){
             frameCount = 0;
             lastTime = currentTime;
         }
+        glEnable(GL_POINT_SMOOTH);
         glPointSize(PARTICLE_SIZE);
         // Render particles
         glBindBuffer(GL_ARRAY_BUFFER, vbo);

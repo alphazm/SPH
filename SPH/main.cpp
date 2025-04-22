@@ -2,6 +2,8 @@
 #include "openMP.h"
 #include "MPI.h"
 #include <iostream>
+using namespace std;
+int method = 0;;
 
 void errorCallback(int error, const char* description) {
     std::cerr << "GLFW Error: " << description << std::endl;
@@ -60,9 +62,36 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
 }
 
 int main(int argc, char** argv){
-    //serial_main();
-	//CUDA_main();
-	//openMP_main();
-	//MPI_main(argc, argv);
+	cout << "select the method to run:" << endl;
+	cout << "1. Serial" << endl;
+	cout << "2. OpenMP" << endl;
+	cout << "3. CUDA" << endl;
+	cout << "4. MPI" << endl;
+    cout << ":";
+	cin >> method;
+
+    switch (method)
+    {
+	case 1:
+		cout << "Serial" << endl;
+		serial_main();
+		break;
+	case 2:
+		cout << "OpenMP" << endl;
+		openMP_main();
+		break;
+	case 3:
+		cout << "CUDA" << endl;
+		CUDA_main();
+		break;
+	case 4:
+		cout << "MPI" << endl;
+		MPI_main(argc, argv);
+		break;
+    default:
+		cout << "Invalid method" << endl;
+        break;
+    }
+ 
 	return 0;
 }

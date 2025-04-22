@@ -84,6 +84,7 @@ int serial_main() {
 			lastTime = currentTime;
 		}
 
+		glEnable(GL_POINT_SMOOTH);
 		glPointSize(PARTICLE_SIZE);
 		glBegin(GL_POINTS);
 		glColor3f(0.0f, 0.5f, 1.0f);
