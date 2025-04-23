@@ -1,6 +1,7 @@
 #include "main.h"
 #include "openMP.h"
 #include "MPI.h"
+#include <mpi.h>
 #include <iostream>
 using namespace std;
 int method = 0;;
@@ -61,37 +62,45 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
         mouseButtonState = 0;
 }
 
-int main(int argc, char** argv){
-	cout << "select the method to run:" << endl;
-	cout << "1. Serial" << endl;
-	cout << "2. OpenMP" << endl;
-	cout << "3. CUDA" << endl;
-	cout << "4. MPI" << endl;
-    cout << ":";
-	cin >> method;
+int main(int argc, char** argv) {
+    MPI_Init(&argc, &argv);  // Initialize MPI once
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    switch (method)
-    {
-	case 1:
-		cout << "Serial" << endl;
-		serial_main();
-		break;
-	case 2:
-		cout << "OpenMP" << endl;
-		openMP_main();
-		break;
-	case 3:
-		cout << "CUDA" << endl;
-		CUDA_main();
-		break;
-	case 4:
-		cout << "MPI" << endl;
-		MPI_main(argc, argv);
-		break;
-    default:
-		cout << "Invalid method" << endl;
-        break;
+    int method = 0;
+    if (rank == 0) {
+        std::cout << "Select method:\n"
+            << "1. Serial\n"
+            << "2. OpenMP\n"
+            << "3. CUDA\n"
+            << "4. MPI\n"
+            << ": ";
+        std::cin >> method;
     }
- 
-	return 0;
+    // Broadcast the choice to all ranks
+    MPI_Bcast(&method, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    switch (method) {
+    case 1:
+        if (rank == 0) std::cout << "Running Serial on rank 0 only.\n";
+        if (rank == 0) serial_main();
+        break;
+    case 2:
+        if (rank == 0) std::cout << "Running OpenMP.\n";
+        openMP_main();
+        break;
+    case 3:
+        if (rank == 0) std::cout << "Running CUDA.\n";
+        CUDA_main();
+        break;
+    case 4:
+        if (rank == 0) std::cout << "Running MPI version on all ranks.\n";
+        MPI_main();  // Call MPI_main without re-initializing MPI
+        break;
+    default:
+        if (rank == 0) std::cerr << "Invalid method.\n";
+    }
+
+    MPI_Finalize();  // Finalize MPI once
+    return 0;
 }

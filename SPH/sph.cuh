@@ -4,7 +4,7 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 
-#define N 500        // Number of particles
+#define N 1000        // Number of particles
 #define H 0.15f      // Adjusted smoothing radius for sufficient neighbors
 #define DT 0.0005f   // Keep small time step
 #define MASS 0.05f   // Reduced mass

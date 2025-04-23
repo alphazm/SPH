@@ -130,8 +130,31 @@ void serial_integrate(std::vector<Particle>& particles) {
 
 void serial_initSimulation(std::vector<Particle>& particles) {
 	particles.resize(N);
+
+	// Calculate grid dimensions
+	int cols = static_cast<int>(std::ceil(std::sqrt(N))); // Number of columns
+	int rows = (N + cols - 1) / cols; // Number of rows, rounded up
+	if (rows == 0) rows = 1; // Ensure at least one row for small N
+
+	// Define safe simulation range [0.05, 1.95]
+	const float minPos = 0.05f;
+	const float maxPos = 1.95f;
+	const float range = maxPos - minPos; // 1.9
+
+	// Calculate spacing to fit particles within [0.05, 1.95]
+	float spacingX = range / (cols > 1 ? cols - 1 : 1); // Avoid division by zero
+	float spacingY = range / (rows > 1 ? rows - 1 : 1);
+	float spacing = std::min(spacingX, spacingY); // Use smaller spacing to avoid overlap
+
+	// Center the grid
+	float startX = minPos + (range - (cols - 1) * spacing) / 2.0f;
+	float startY = maxPos - (range - (rows - 1) * spacing) / 2.0f;
+
+	// Initialize particles
 	for (int i = 0; i < N; i++) {
-		particles[i].pos = { 0.7f + 0.05f * (i % 20), 1.5f - 0.05f * (i / 20) };
+		int x = i % cols; // Column index
+		int y = i / cols; // Row index
+		particles[i].pos = { startX + x * spacing, startY - y * spacing };
 		particles[i].vel = { 0.0f, 0.0f };
 		particles[i].density = REST_DENSITY;
 		particles[i].pressure = 0.0f;

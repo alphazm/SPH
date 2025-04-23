@@ -1,19 +1,16 @@
-﻿// mpi_sph_liquid_sim.cpp
+﻿// Parallel SPH simulation using MPI (MPI_Allgather), modified to follow serial SPH code
 
 #include <mpi.h>
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <vector>
 #include <cmath>
-#include <chrono>
 #include <iostream>
-#include "MPI.h"
-#include "main.h"
 
 using namespace std;
 
-#define M_PI 3.141596
-// Simulation parameters
+#define M_PI 3.141596f
+// Simulation parameters (consistent with serial assumptions)
 #define N 500
 #define H 0.15f
 #define DT 0.0005f
@@ -32,12 +29,9 @@ using namespace std;
 struct Vec2 {
     float x, y;
     Vec2(float _x = 0, float _y = 0) : x(_x), y(_y) {}
-    Vec2 operator+(const Vec2& rhs) const { return Vec2(x + rhs.x, y + rhs.y); }
-    Vec2 operator-(const Vec2& rhs) const { return Vec2(x - rhs.x, y - rhs.y); }
-    Vec2 operator*(float scalar) const { return Vec2(x * scalar, y * scalar); }
-    Vec2 operator/(float scalar) const { return Vec2(x / scalar, y / scalar); }
-    float length() const { return std::sqrt(x * x + y * y); }
-    Vec2 normalize() const { float len = length(); return len > 0 ? Vec2(x / len, y / len) : Vec2(); }
+    Vec2 operator+(const Vec2& o) const { return Vec2(x + o.x, y + o.y); }
+    Vec2 operator-(const Vec2& o) const { return Vec2(x - o.x, y - o.y); }
+    Vec2 operator*(float s) const { return Vec2(x * s, y * s); }
 };
 
 struct Particle {
@@ -46,31 +40,46 @@ struct Particle {
     bool valid;
 };
 
-vector<Particle> MPI_particles;
-Vec2 mousePos;
-float mpi_interactionStrength = 0.0f;
+// Mouse input globals (used on rank 0)
+static double mouseX = 0.0, mouseY = 0.0;
+static int mouseButtonState = 0;
 
-// Serial-aligned kernel functions
+// Mouse callbacks (consistent with serial_main.cpp)
+static void cursorPositionCallback(GLFWwindow* window, double xpos, double ypos) {
+    mouseX = xpos;
+    mouseY = ypos;
+}
+
+static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
+    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
+        mouseButtonState = 1;
+    else if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS)
+        mouseButtonState = 2;
+    else
+        mouseButtonState = 0;
+}
+
+// Kernel functions (aligned with sph.cpp)
 float mpi_poly6(float r2, float h) {
     float h2 = h * h;
     if (r2 > h2) return 0.0f;
     float term = h2 - r2;
-    return (315.0f / (64.0f * M_PI * powf(h, 9))) * term * term * term;
+    return (315.0f / (64.0f * 3.14159f * powf(h, 9))) * term * term * term;
 }
 
-Vec2 spikyGrad(Vec2 r, float r_len, float h) {
-    if (r_len > h || r_len < 1e-6) return Vec2(0, 0);
+Vec2 spikyGrad(const Vec2& r, float r_len, float h) {
+    if (r_len > h || r_len < 1e-6f) return Vec2(0, 0);
     float term = h - r_len;
-    float coeff = -45.0f / (M_PI * powf(h, 6)) * term * term / r_len;
+    float coeff = -45.0f / (3.14159f * powf(h, 6)) * term * term / r_len;
     return Vec2(coeff * r.x, coeff * r.y);
 }
 
 float mpi_viscosityLaplacian(float r, float h) {
     if (r > h) return 0.0f;
-    return 45.0f / (M_PI * powf(h, 6)) * (h - r);
+    return 45.0f / (3.14159f * powf(h, 6)) * (h - r);
 }
 
-Vec2 ljForce(Vec2 r, float r_len, float sigma, float epsilon) {
+Vec2 ljForce(const Vec2& r, float r_len, float sigma, float epsilon) {
     if (r_len >= 2.5f * sigma || r_len < 1e-6f) return Vec2(0, 0);
     float inv_r = 1.0f / r_len;
     float sigma_over_r = sigma * inv_r;
@@ -82,171 +91,296 @@ Vec2 ljForce(Vec2 r, float r_len, float sigma, float epsilon) {
     return Vec2(coeff * r.x, coeff * r.y);
 }
 
-void mpi_initParticles() {
-    MPI_particles.resize(N);
+// Particle initialization (matches serial_initSimulation from sph.cpp)
+void mpi_initParticles(vector<Particle>& P) {
+    if (P.size() != N) P.resize(N);
+    int cols = static_cast<int>(ceil(sqrtf(static_cast<float>(N))));
+    int rows = (N + cols - 1) / cols;
+    if (rows == 0) rows = 1;
+    const float minPos = 0.05f;
+    const float maxPos = 1.95f;
+    const float range = maxPos - minPos;
+    float spacingX = range / (cols > 1 ? cols - 1 : 1);
+    float spacingY = range / (rows > 1 ? rows - 1 : 1);
+    float spacing = min(spacingX, spacingY);
+    float startX = minPos + (range - (cols - 1) * spacing) / 2.0f;
+    float startY = maxPos - (range - (rows - 1) * spacing) / 2.0f;
+
     for (int i = 0; i < N; i++) {
-        MPI_particles[i].position = Vec2(0.7f + 0.05f * (i % 20), 1.5f - 0.05f * (i / 20));
-        MPI_particles[i].velocity = Vec2(0.0f, 0.0f);
-        MPI_particles[i].density = REST_DENSITY;
-        MPI_particles[i].pressure = 0.0f;
-        MPI_particles[i].valid = true;
+        int x = i % cols;
+        int y = i / cols;
+        P[i].position = Vec2(startX + x * spacing, startY - y * spacing);
+        P[i].velocity = Vec2(0, 0);
+        P[i].density = REST_DENSITY;
+        P[i].pressure = 0;
+        P[i].valid = true;
     }
 }
 
-void computeDensityPressure() {
-    for (auto& pi : MPI_particles) {
-        pi.density = 0.0f;
-        for (auto& pj : MPI_particles) {
-            Vec2 r = pj.position - pi.position;
-            float r2 = r.length() * r.length();
-            if (r2 < H * H) {
-                pi.density += MASS * mpi_poly6(r2, H);
-            }
-        }
-        pi.pressure = STIFFNESS * (pi.density - REST_DENSITY);
-        if (pi.pressure < 0.0f) pi.pressure = 0.0f;
-    }
-}
-
-void computeForces() {
-    for (auto& pi : MPI_particles) {
-        if (!pi.valid) continue;
-        Vec2 force(0.0f, 0.0f);
-        for (auto& pj : MPI_particles) {
-            if (&pi == &pj || !pj.valid) continue;
-            Vec2 r = pi.position - pj.position;
-            float r2 = r.length() * r.length();
-            if (r2 >= H * H) continue;
-            float r_len = sqrtf(r2);
-            Vec2 grad = spikyGrad(r, r_len, H);
-            float pressureTerm = (pi.pressure + pj.pressure) / (2.0f * pj.density);
-            Vec2 pressureForce = Vec2(-MASS * pressureTerm * grad.x, -MASS * pressureTerm * grad.y);
-            Vec2 relVel = pj.velocity - pi.velocity;
-            float viscForce = VISCOSITY * MASS * mpi_viscosityLaplacian(r_len, H) / pj.density;
-            Vec2 ljF = ljForce(r, r_len, SIGMA, EPSILON);
-            force.x += pressureForce.x + viscForce * relVel.x + ljF.x;
-            force.y += pressureForce.y + viscForce * relVel.y + ljF.y;
-        }
-        force.y -= 10.0f * pi.density;
-        if (mpi_interactionStrength != 0.0f) {
-            Vec2 r = pi.position - mousePos;
-            float r2 = r.length() * r.length();
-            if (r2 < 0.25f * 0.25f) {
-                float r_len = sqrtf(r2);
-                if (r_len > 1e-6f) {
-                    float forceMag = mpi_interactionStrength * (0.25f - r_len) / 0.25f;
-                    force.x += forceMag * r.x / r_len;
-                    force.y += forceMag * r.y / r_len;
-                }
-            }
-        }
-        float forceMag = sqrtf(force.x * force.x + force.y * force.y);
-        if (forceMag > 1000.0f * pi.density) {
-            float scale = 1000.0f * pi.density / forceMag;
-            force.x *= scale;
-            force.y *= scale;
-        }
-        pi.velocity.x += DT * force.x / pi.density;
-        pi.velocity.y += DT * force.y / pi.density;
-    }
-}
-
-void integrate() {
-    for (auto& p : MPI_particles) {
-        if (!p.valid) continue;
-        p.position.x += DT * p.velocity.x;
-        p.position.y += DT * p.velocity.y;
-        float velMag = sqrtf(p.velocity.x * p.velocity.x + p.velocity.y * p.velocity.y);
-        if (velMag > MAX_VEL) {
-            float scale = MAX_VEL / velMag;
-            p.velocity.x *= scale;
-            p.velocity.y *= scale;
-        }
-        if (p.position.x < 0.05f) { p.position.x = 0.05f; p.velocity.x = fabsf(p.velocity.x) * DAMPING; }
-        if (p.position.x > 1.95f) { p.position.x = 1.95f; p.velocity.x = -fabsf(p.velocity.x) * DAMPING; }
-        if (p.position.y < 0.05f) { p.position.y = 0.05f; p.velocity.y = fabsf(p.velocity.y) * DAMPING; }
-        if (p.position.y > 1.95f) { p.position.y = 1.95f; p.velocity.y = -fabsf(p.velocity.y) * DAMPING; }
-    }
-}
-
-void renderParticles() {
+// Rendering function (matches serial_main.cpp with validity and NaN checks)
+void renderParticles(const vector<Particle>& P) {
     glClear(GL_COLOR_BUFFER_BIT);
     glEnable(GL_POINT_SMOOTH);
     glPointSize(PARTICLE_RADIUS);
     glBegin(GL_POINTS);
-    glColor3f(0.3f, 0.7f, 1.0f);
-    for (auto& p : MPI_particles) {
-        glVertex2f(p.position.x, p.position.y); 
+    glColor3f(0.0f, 0.5f, 1.0f); // Match serial color
+    for (const auto& p : P) {
+        if (p.valid && !isnan(p.position.x) && !isnan(p.position.y)) {
+            glVertex2f(p.position.x, p.position.y);
+        }
     }
     glEnd();
 }
 
-static void mouseCallback(GLFWwindow* window, double xpos, double ypos) {
-    mousePos = Vec2(xpos / WINDOW_WIDTH, 1.0f - ypos / WINDOW_HEIGHT);
-}
-
-static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
-    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) mpi_interactionStrength = 50000.0f;
-    else if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) mpi_interactionStrength = 0.0f;
-}
-
-int MPI_main(int argc, char** argv) {
-    MPI_Init(&argc, &argv);
+int MPI_main() {
+    
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    if (rank == 0) {
-        if (!glfwInit()) return -1;
-        GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "MPI SPH Fluid", NULL, NULL);
-        if (!window) { glfwTerminate(); return -1; }
-        glfwMakeContextCurrent(window);
-        glewInit();
+    if (N % size != 0) {
+        if (rank == 0) cerr << "Error: N must be divisible by number of MPI processes\n";
+        MPI_Finalize();
+        return -1;
+    }
+    int N_local = N / size;
+    int start = rank * N_local;
+    int end = start + N_local;
 
+    // Particle data and communication buffers
+    vector<Particle> particles(N);
+    vector<Vec2> allPos(N), allVel(N), localPos(N_local), localVel(N_local);
+    vector<float> allDens(N), allPres(N), localDens(N_local), localPres(N_local);
+
+    // Initialize on rank 0 and broadcast
+    if (rank == 0) mpi_initParticles(particles);
+    if (rank == 0) {
+        for (int i = 0; i < N; ++i) {
+            allPos[i] = particles[i].position;
+            allVel[i] = particles[i].velocity;
+        }
+    }
+    MPI_Bcast(allPos.data(), N * sizeof(Vec2), MPI_BYTE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(allVel.data(), N * sizeof(Vec2), MPI_BYTE, 0, MPI_COMM_WORLD);
+    for (int i = 0; i < N; ++i) {
+        particles[i].position = allPos[i];
+        particles[i].velocity = allVel[i];
+        particles[i].density = REST_DENSITY;
+        particles[i].pressure = 0;
+        particles[i].valid = true;
+    }
+
+    // GLFW setup on rank 0
+    GLFWwindow* window = nullptr;
+    if (rank == 0) {
+        if (!glfwInit()) {
+            cerr << "Failed to initialize GLFW\n";
+            MPI_Finalize();
+            return -1;
+        }
+        window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "MPI SPH Fluid", NULL, NULL);
+        if (!window) {
+            glfwTerminate();
+            cerr << "Failed to create GLFW window\n";
+            MPI_Finalize();
+            return -1;
+        }
+        glfwMakeContextCurrent(window);
+        if (glewInit() != GLEW_OK) {
+            cerr << "Failed to initialize GLEW\n";
+            glfwDestroyWindow(window);
+            glfwTerminate();
+            MPI_Finalize();
+            return -1;
+        }
         glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
-        glOrtho(0, 2, 0, 2, -1, 1); // Match serial version
+        glOrtho(0, 2, 0, 2, -1, 1);
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
-
-        glfwSetCursorPosCallback(window, mouseCallback);
+        glClearColor(0.1f, 0.1f, 0.2f, 1.0f); // Match serial clear color
+        glfwSetCursorPosCallback(window, cursorPositionCallback);
         glfwSetMouseButtonCallback(window, mouseButtonCallback);
+    }
 
-        glClearColor(0, 0, 0, 1);
+    // FPS variables on rank 0
+    double lastTime = glfwGetTime();
+    int frameCount = 0;
+    double fps = 0.0;
+    double totalFrame = 0.0;
+    int totalFrameRender = 0;
 
-        mpi_initParticles();
-        auto lastTime = std::chrono::high_resolution_clock::now();
-        int frames = 0;
-        int totalFrame = 0;
-        int totalFrameRender = 0;
+    // Main simulation loop with synchronized exit
+    bool shouldClose = false;
+    while (!shouldClose) {
+        // Handle mouse input on rank 0 and broadcast
+        float mousePosX, mousePosY, interactionStrength;
+        if (rank == 0) {
+            float simX = (mouseX / WINDOW_WIDTH) * 2.0f;
+            float simY = 2.0f - (mouseY / WINDOW_HEIGHT) * 2.0f;
+            mousePosX = simX;
+            mousePosY = simY;
+            interactionStrength = (mouseButtonState == 1) ? 50000.0f : (mouseButtonState == 2) ? -50000.0f : 0.0f;
+        }
+        else {
+            mousePosX = 0.0f;
+            mousePosY = 0.0f;
+            interactionStrength = 0.0f;
+        }
+        MPI_Bcast(&mousePosX, 1, MPI_FLOAT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&mousePosY, 1, MPI_FLOAT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&interactionStrength, 1, MPI_FLOAT, 0, MPI_COMM_WORLD);
+        Vec2 mousePos(mousePosX, mousePosY);
 
-        while (!glfwWindowShouldClose(window)) {
-            computeDensityPressure();
-            computeForces();
-            integrate();
+        // 1) Gather positions & velocities
+        for (int i = 0; i < N_local; ++i) {
+            localPos[i] = particles[start + i].position;
+            localVel[i] = particles[start + i].velocity;
+        }
+        MPI_Allgather(localPos.data(), N_local * sizeof(Vec2), MPI_BYTE,
+            allPos.data(), N_local * sizeof(Vec2), MPI_BYTE, MPI_COMM_WORLD);
+        MPI_Allgather(localVel.data(), N_local * sizeof(Vec2), MPI_BYTE,
+            allVel.data(), N_local * sizeof(Vec2), MPI_BYTE, MPI_COMM_WORLD);
 
-            renderParticles();
+        // 2) Compute density & pressure (local, matches serial_computeDensityPressure)
+        for (int idx = start; idx < end; ++idx) {
+            float dens = 0;
+            for (int j = 0; j < N; ++j) {
+                Vec2 r = particles[idx].position - allPos[j];
+                float r2 = r.x * r.x + r.y * r.y;
+                if (r2 < H * H) dens += MASS * mpi_poly6(r2, H);
+            }
+            localDens[idx - start] = dens;
+            particles[idx].density = dens;
+            float p = STIFFNESS * (dens - REST_DENSITY);
+            localPres[idx - start] = (p > 0 ? p : 0);
+            particles[idx].pressure = localPres[idx - start];
+        }
+        MPI_Allgather(localDens.data(), N_local, MPI_FLOAT,
+            allDens.data(), N_local, MPI_FLOAT, MPI_COMM_WORLD);
+        MPI_Allgather(localPres.data(), N_local, MPI_FLOAT,
+            allPres.data(), N_local, MPI_FLOAT, MPI_COMM_WORLD);
+
+        // 3) Compute forces & integrate (local, matches serial_computeForces and serial_integrate)
+        for (int idx = start; idx < end; ++idx) {
+            if (!particles[idx].valid) continue;
+            Vec2 force(0, 0);
+            for (int j = 0; j < N; ++j) {
+                if (j == idx || !particles[j].valid) continue;
+                Vec2 dr = particles[idx].position - allPos[j];
+                float r2 = dr.x * dr.x + dr.y * dr.y;
+                if (r2 >= H * H) continue;
+                float r_len = sqrtf(r2);
+                Vec2 grad = spikyGrad(dr, r_len, H);
+                float pt = (particles[idx].pressure + allPres[j]) / (2 * allDens[j]);
+                Vec2 pForce = Vec2(-MASS * pt * grad.x, -MASS * pt * grad.y);
+                Vec2 rv = allVel[j] - particles[idx].velocity;
+                float visc = VISCOSITY * MASS * mpi_viscosityLaplacian(r_len, H) / allDens[j];
+                Vec2 vForce = Vec2(visc * rv.x, visc * rv.y);
+                Vec2 lj = ljForce(dr, r_len, SIGMA, EPSILON);
+                force.x += pForce.x + vForce.x + lj.x;
+                force.y += pForce.y + vForce.y + lj.y;
+            }
+            force.y -= 10.0f * particles[idx].density; // Gravity
+
+            // Add mouse interaction (matches serial_computeForces)
+            if (interactionStrength != 0.0f) {
+                Vec2 r = particles[idx].position - mousePos;
+                float r2 = r.x * r.x + r.y * r.y;
+                if (r2 < 0.25f * 0.25f) {
+                    float r_len = sqrtf(r2);
+                    if (r_len > 1e-6f) {
+                        float forceMag = interactionStrength * (0.25f - r_len) / 0.25f;
+                        force.x += forceMag * r.x / r_len;
+                        force.y += forceMag * r.y / r_len;
+                    }
+                }
+            }
+
+            // Clamp force
+            float fmag = sqrtf(force.x * force.x + force.y * force.y);
+            if (fmag > 1000.0f * particles[idx].density) {
+                float s = (1000.0f * particles[idx].density) / fmag;
+                force.x *= s;
+                force.y *= s;
+            }
+
+            // Integrate velocity
+            particles[idx].velocity.x += DT * force.x / particles[idx].density;
+            particles[idx].velocity.y += DT * force.y / particles[idx].density;
+
+            // Integrate position & boundary (matches serial_integrate)
+            particles[idx].position.x += DT * particles[idx].velocity.x;
+            particles[idx].position.y += DT * particles[idx].velocity.y;
+            float vmag = sqrtf(particles[idx].velocity.x * particles[idx].velocity.x +
+                particles[idx].velocity.y * particles[idx].velocity.y);
+            if (vmag > MAX_VEL) {
+                float s = MAX_VEL / vmag;
+                particles[idx].velocity.x *= s;
+                particles[idx].velocity.y *= s;
+            }
+            if (particles[idx].position.x < 0.05f) {
+                particles[idx].position.x = 0.05f;
+                particles[idx].velocity.x = fabsf(particles[idx].velocity.x) * DAMPING;
+            }
+            if (particles[idx].position.x > 1.95f) {
+                particles[idx].position.x = 1.95f;
+                particles[idx].velocity.x = -fabsf(particles[idx].velocity.x) * DAMPING;
+            }
+            if (particles[idx].position.y < 0.05f) {
+                particles[idx].position.y = 0.05f;
+                particles[idx].velocity.y = fabsf(particles[idx].velocity.y) * DAMPING;
+            }
+            if (particles[idx].position.y > 1.95f) {
+                particles[idx].position.y = 1.95f;
+                particles[idx].velocity.y = -fabsf(particles[idx].velocity.y) * DAMPING;
+            }
+        }
+
+        // 4) Gather updated pos & vel for rendering
+        for (int i = 0; i < N_local; ++i) {
+            localPos[i] = particles[start + i].position;
+            localVel[i] = particles[start + i].velocity;
+        }
+        MPI_Allgather(localPos.data(), N_local * sizeof(Vec2), MPI_BYTE,
+            allPos.data(), N_local * sizeof(Vec2), MPI_BYTE, MPI_COMM_WORLD);
+        MPI_Allgather(localVel.data(), N_local * sizeof(Vec2), MPI_BYTE,
+            allVel.data(), N_local * sizeof(Vec2), MPI_BYTE, MPI_COMM_WORLD);
+
+        // 5) Render and handle FPS on rank 0, synchronize exit
+        if (rank == 0) {
+            for (int i = 0; i < N; ++i) {
+                particles[i].position = allPos[i];
+                particles[i].velocity = allVel[i];
+            }
+            shouldClose = glfwWindowShouldClose(window);
+            renderParticles(particles);
             glfwSwapBuffers(window);
             glfwPollEvents();
 
-            frames++;
-            auto now = std::chrono::high_resolution_clock::now();
-            float elapsed = std::chrono::duration<float>(now - lastTime).count();
-            if (elapsed >= 1.0f) {
-                std::cout << "FPS: " << frames << std::endl;
-				totalFrame += frames;
+            // FPS calculation (matches serial_main.cpp)
+            double currentTime = glfwGetTime();
+            frameCount++;
+            if (currentTime - lastTime >= 1.0) {
+                fps = frameCount / (currentTime - lastTime);
+                totalFrame += fps;
                 totalFrameRender++;
-                frames = 0;
-                lastTime = now;
+                frameCount = 0;
+                lastTime = currentTime;
+                cout << "FPS: " << fps << endl;
             }
         }
-        glfwTerminate();
-        double avgFPS = static_cast<double>(totalFrame) / totalFrameRender;
-        std::cout << "Average FPS: " << avgFPS << " total frame recode : " << totalFrameRender << std::endl;
+        MPI_Bcast(&shouldClose, 1, MPI_C_BOOL, 0, MPI_COMM_WORLD);
+    }
 
+    // Cleanup and average FPS on rank 0
+    if (rank == 0) {
+        double avgFPS = totalFrame / totalFrameRender;
+        cout << "Average FPS: " << avgFPS << " total frame record: " << totalFrameRender << endl;
+        glfwDestroyWindow(window);
+        glfwTerminate();
     }
     MPI_Finalize();
-
     return 0;
 }

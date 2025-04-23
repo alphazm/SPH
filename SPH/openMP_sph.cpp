@@ -7,13 +7,14 @@
 #include <string>
 #include <cstdlib>
 #include <DirectXMath.h>
+#include <iostream>
 
 #pragma comment (lib, "OpenGL32.lib")
 
 using namespace std;
 using namespace DirectX;
 
-#define N 500
+#define N 1000
 #define H 0.15f
 #define DT 0.0005f
 #define MASS 0.05f
@@ -25,8 +26,11 @@ using namespace DirectX;
 #define SIGMA 0.05f
 #define EPSILON 1.0f
 #define WIDTH 800
-#define HEIGHT 600
+#define HEIGHT 800
 #define PARTICLE_RADIUS 8.0f
+
+float avgFPS = 0;
+int totalFrame = 0;
 
 struct Particle {
     XMFLOAT2 pos;
@@ -144,8 +148,31 @@ void computeForcesOMP() {
 
 void initParticles() {
     particles.resize(N);
+
+    // Calculate grid dimensions
+    int cols = static_cast<int>(std::ceil(std::sqrt(N))); // Number of columns
+    int rows = (N + cols - 1) / cols; // Number of rows, rounded up
+    if (rows == 0) rows = 1; // Ensure at least one row for small N
+
+    // Define safe simulation range [0.05, 1.95]
+    const float minPos = 0.05f;
+    const float maxPos = 1.95f;
+    const float range = maxPos - minPos; // 1.9
+
+    // Calculate spacing to fit particles within [0.05, 1.95]
+    float spacingX = range / (cols > 1 ? cols - 1 : 1); // Avoid division by zero
+    float spacingY = range / (rows > 1 ? rows - 1 : 1);
+    float spacing = min(spacingX, spacingY); // Use smaller spacing to avoid overlap
+
+    // Center the grid
+    float startX = minPos + (range - (cols - 1) * spacing) / 2.0f;
+    float startY = maxPos - (range - (rows - 1) * spacing) / 2.0f;
+
+    // Initialize particles
     for (int i = 0; i < N; i++) {
-        particles[i].pos = { 0.7f + 0.05f * (i % 20), 1.5f - 0.05f * (i / 20) };
+        int x = i % cols; // Column index
+        int y = i / cols; // Row index
+        particles[i].pos = { startX + x * spacing, startY - y * spacing };
         particles[i].vel = { 0.0f, 0.0f };
         particles[i].density = REST_DENSITY;
         particles[i].pressure = 0.0f;
@@ -207,7 +234,7 @@ void update() {
 // Windows + OpenGL Boilerplate
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
-    case WM_CLOSE: PostQuitMessage(0); return 0;
+    case WM_CLOSE: PostQuitMessage(0); cout << "Average FPS: "<< avgFPS/totalFrame << endl; return 0;
     case WM_MOUSEMOVE: {
         int x = LOWORD(lParam);
         int y = HIWORD(lParam);
@@ -255,7 +282,8 @@ int openMP_main() {
     MSG msg;
     auto lastTime = chrono::high_resolution_clock::now();
     int frameCount = 0;
-    float avgFPS = 0.0f;
+    float FPS = 0.0f;
+
 
     while (true) {
         while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -272,15 +300,18 @@ int openMP_main() {
         auto currentTime = chrono::high_resolution_clock::now();
         chrono::duration<float> elapsed = currentTime - lastTime;
         if (elapsed.count() >= 1.0f) {
-            avgFPS = frameCount / elapsed.count();
+            FPS = frameCount / elapsed.count();
+			avgFPS += FPS;
+			totalFrame++;
             frameCount = 0;
             lastTime = currentTime;
 
             char title[256];
-            sprintf_s(title, "SPH Fluid Simulation - Avg FPS: %.2f | Mode: %s", avgFPS, isPushing ? "Push" : "Pull");
+            sprintf_s(title, "SPH Fluid Simulation - Avg FPS: %.2f | Mode: %s", FPS, isPushing ? "Push" : "Pull");
             SetWindowTextA(hwnd, title);
         }
     }
+	
 
     return 0;
 }
