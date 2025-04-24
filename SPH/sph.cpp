@@ -166,4 +166,5 @@ void serial_stepSimulation(std::vector<Particle>& particles, float2 mousePos, fl
 	serial_computeDensityPressure(particles);
 	serial_computeForces(particles, mousePos, interactionStrength);
 	serial_integrate(particles);
+	
 }

@@ -51,4 +51,5 @@ void renderString(float x, float y, const char* str, float scale);
 
 int CUDA_main();
 int serial_main();
-
+float serial_performance_test();
+float CUDA_performance_test();

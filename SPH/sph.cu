@@ -2,6 +2,9 @@
 #include <math.h>
 #include <stdio.h>
 #include <iostream>
+#include <chrono>
+#include "main.h"
+using namespace std;
 
 // Global device memory
 Particle* d_particles = nullptr;
@@ -214,7 +217,8 @@ __global__ void updateVBO(float2* vboPtr, Particle* particles) {
 
 void stepSimulation(Particle* particles, int* grid, int* cellStart, int* cellEnd, cudaGraphicsResource* cudaVBO, float2 mousePos, float interactionStrength) {
     int threadsPerBlock = 128;
-    int blocks = (N + threadsPerBlock - 1) / threadsPerBlock;
+    int blocks = (N + threadsPerBlock - 1) / threadsPerBlock
+        ;
 
     computeDensityPressure << <blocks, threadsPerBlock >> > (d_particles, nullptr, nullptr, nullptr);
     computeForces << <blocks, threadsPerBlock >> > (d_particles, nullptr, nullptr, nullptr, mousePos, interactionStrength);
@@ -230,6 +234,43 @@ void stepSimulation(Particle* particles, int* grid, int* cellStart, int* cellEnd
     CUDA_CHECK(cudaGraphicsUnmapResources(1, &cudaVBO, 0));
 
     CUDA_CHECK(cudaMemcpy(particles, d_particles, N * sizeof(Particle), cudaMemcpyDeviceToHost));
+}
+
+float CUDA_performance_test() {
+    Particle* d_particles;
+    cudaMalloc(&d_particles, N * sizeof(Particle));
+    Particle* h_particles = new Particle[N];
+    initSimulation(h_particles, nullptr); // Initialize without VBO
+    cudaMemcpy(d_particles, h_particles, N * sizeof(Particle), cudaMemcpyHostToDevice);
+
+    int num_steps = 100;
+    int num_runs = 10;
+    double total_ups = 0.0;
+    int threadsPerBlock = 1024;
+    int blocks = (N + threadsPerBlock - 1) / threadsPerBlock;
+
+    for (int run = 0; run < num_runs; ++run) {
+        auto start_time = std::chrono::high_resolution_clock::now();
+		cout << "Run " << run + 1 << " of " << num_runs << endl;
+        for (int step = 0; step < num_steps; ++step) {
+            computeDensityPressure << <blocks, threadsPerBlock >> > (d_particles, nullptr, nullptr, nullptr);
+            computeForces << <blocks, threadsPerBlock >> > (d_particles, nullptr, nullptr, nullptr, make_float2(0, 0), 0.0f);
+            integrate << <blocks, threadsPerBlock >> > (d_particles);
+            cudaDeviceSynchronize();
+			cout << "\nStep " << step + 1 << " of " << num_steps << endl;
+        }
+        auto end_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = end_time - start_time;
+        double ups = num_steps / elapsed.count();
+        total_ups += ups;
+    }
+
+    float avg_ups = total_ups / num_runs;
+    
+
+    cudaFree(d_particles);
+    delete[] h_particles;
+    return avg_ups;
 }
 
 void cleanupSimulation() {

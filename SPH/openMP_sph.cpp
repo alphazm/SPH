@@ -14,7 +14,7 @@
 using namespace std;
 using namespace DirectX;
 
-#define N 1000
+#define N 1024
 #define H 0.15f
 #define DT 0.0005f
 #define MASS 0.05f
@@ -314,4 +314,31 @@ int openMP_main() {
 	
 
     return 0;
+}
+
+float openMP_performance_test() {
+    std::vector<Particle> particles(N);
+    initParticles(); // Use existing initialization
+
+    int num_steps = 100;
+    int num_runs = 10;
+    double total_ups = 0.0;
+
+    for (int run = 0; run < num_runs; ++run) {
+        auto start_time = std::chrono::high_resolution_clock::now();
+		cout << "Run: " << run + 1 << " / " << num_runs << endl;
+        for (int step = 0; step < num_steps; ++step) {
+            computeDensityPressureOMP();
+            computeForcesOMP();
+            integrateOMP();
+			cout << "\nStep: " << step + 1 << " / " << num_steps << endl;
+        }
+        auto end_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = end_time - start_time;
+        double ups = num_steps / elapsed.count();
+        total_ups += ups;
+    }
+
+    float avg_ups = total_ups / num_runs;
+	return avg_ups;
 }

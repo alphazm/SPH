@@ -2,6 +2,8 @@
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <sstream>
+#include <vector>
+#include <chrono>
 #include <iomanip>
 #include "sph.h"
 #include "main.h"
@@ -112,4 +114,34 @@ int serial_main() {
 	std::cout << "Average FPS: " << avgFPS << " total frame recode : " << totalFrameRender << std::endl;
 
 	return 0;
+}
+
+
+float serial_performance_test() {
+	std::vector<Particle> particles;
+	serial_initSimulation(particles);  // Initialize particles
+
+	int num_steps = 100;  // Number of simulation steps per run
+	int num_runs = 10;     // Number of runs to average over
+	double total_ups = 0.0;
+
+	// Set mouse position and interaction strength to zero (no external interaction)
+	float2 mousePos = { 0.0f, 0.0f };
+	float interactionStrength = 0.0f;
+
+	for (int run = 0; run < num_runs; ++run) {
+		auto start_time = std::chrono::high_resolution_clock::now();
+		cout << "Run: " << run + 1 << " / " << num_runs << endl;
+		for (int step = 0; step < num_steps; ++step) {
+			serial_stepSimulation(particles, mousePos, interactionStrength);
+			cout << "\nStep: " << step +1 << " / " << num_steps << endl;
+		}
+		auto end_time = std::chrono::high_resolution_clock::now();
+		std::chrono::duration<double> elapsed = end_time - start_time;
+		double ups = num_steps / elapsed.count();
+		total_ups += ups;
+	}
+
+	float avg_ups = total_ups / num_runs;
+	return avg_ups;
 }

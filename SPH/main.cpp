@@ -62,45 +62,75 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
         mouseButtonState = 0;
 }
 
+//int main(int argc, char** argv) {
+//    MPI_Init(&argc, &argv);  // Initialize MPI once
+//    int rank;
+//    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+//
+//    int method = 0;
+//    if (rank == 0) {
+//        std::cout << "Select method:\n"
+//            << "1. Serial\n"
+//            << "2. OpenMP\n"
+//            << "3. CUDA\n"
+//            << "4. MPI\n"
+//            << ": ";
+//        std::cin >> method;
+//    }
+//    // Broadcast the choice to all ranks
+//    MPI_Bcast(&method, 1, MPI_INT, 0, MPI_COMM_WORLD);
+//
+//    switch (method) {
+//    case 1:
+//        if (rank == 0) std::cout << "Running Serial on rank 0 only.\n";
+//        if (rank == 0) serial_main();
+//        break;
+//    case 2:
+//        if (rank == 0) std::cout << "Running OpenMP.\n";
+//        openMP_main();
+//        break;
+//    case 3:
+//        if (rank == 0) std::cout << "Running CUDA.\n";
+//        CUDA_main();
+//        break;
+//    case 4:
+//        if (rank == 0) std::cout << "Running MPI version on all ranks.\n";
+//        MPI_main();  // Call MPI_main without re-initializing MPI
+//        break;
+//    default:
+//        if (rank == 0) std::cerr << "Invalid method.\n";
+//    }
+//
+//    MPI_Finalize();  // Finalize MPI once
+//    return 0;
+//}
+
 int main(int argc, char** argv) {
-    MPI_Init(&argc, &argv);  // Initialize MPI once
-    int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
-    int method = 0;
+	MPI_Init(&argc, &argv);  // Initialize MPI once
+	int rank;
+    float avg_ups[5] = {};
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    
     if (rank == 0) {
-        std::cout << "Select method:\n"
-            << "1. Serial\n"
-            << "2. OpenMP\n"
-            << "3. CUDA\n"
-            << "4. MPI\n"
-            << ": ";
-        std::cin >> method;
-    }
-    // Broadcast the choice to all ranks
-    MPI_Bcast(&method, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        cout << "serial" << endl;
+        avg_ups[0]= serial_performance_test();
+        cout << "openMP" << endl;
+        avg_ups[1] = openMP_performance_test();
+        cout << "CUDA" << endl;
+        avg_ups[2] = CUDA_performance_test();
 
-    switch (method) {
-    case 1:
-        if (rank == 0) std::cout << "Running Serial on rank 0 only.\n";
-        if (rank == 0) serial_main();
-        break;
-    case 2:
-        if (rank == 0) std::cout << "Running OpenMP.\n";
-        openMP_main();
-        break;
-    case 3:
-        if (rank == 0) std::cout << "Running CUDA.\n";
-        CUDA_main();
-        break;
-    case 4:
-        if (rank == 0) std::cout << "Running MPI version on all ranks.\n";
-        MPI_main();  // Call MPI_main without re-initializing MPI
-        break;
-    default:
-        if (rank == 0) std::cerr << "Invalid method.\n";
+        cout << "MPI" << endl;
+    }
+	avg_ups[3] = MPI_performance_test();
+        
+    if (rank == 0) {
+        cout << "Average Updates Per Second:" << endl;
+        cout << "Serial: " << avg_ups[0] << endl;
+        cout << "OpenMP: " << avg_ups[1] << endl;
+        cout << "CUDA: " << avg_ups[2] << endl;
+        cout << "MPI: " << avg_ups[3] << endl;
     }
 
-    MPI_Finalize();  // Finalize MPI once
-    return 0;
+	MPI_Finalize();  // Finalize MPI once
+	return 0;
 }
