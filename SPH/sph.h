@@ -4,8 +4,10 @@
 
 #include <vector>
 #include <cmath>
+#include <unordered_map>
 
-#define N 1024        // Number of particles
+
+
 #define H 0.15f      // Adjusted smoothing radius for sufficient neighbors
 #define DT 0.0005f   // Keep small time step
 #define MASS 0.05f   // Reduced mass
@@ -30,10 +32,9 @@ struct Particle {
 	bool valid;
 };
 
-void serial_computeDensityPressure(std::vector<Particle>& particles);
-void serial_computeForces(std::vector<Particle>& particles, float2 mousePos, float interactionStrength);
-void serial_integrate(std::vector<Particle>& particles);
-void serial_initSimulation(std::vector<Particle>& particles);
-void serial_stepSimulation(std::vector<Particle>& particles, float2 mousePos, float interactionStrength);
-
+void serial_computeDensityPressure(std::vector<Particle>& particles, int N);
+void serial_computeForces(std::vector<Particle>& particles, int N, float2 mousePos, float interactionStrength);
+void serial_integrate(std::vector<Particle>& particles, int N);
+void serial_initSimulation(std::vector<Particle>& particles, int N);
+void serial_stepSimulation(std::vector<Particle>& particles, int N, float2 mousePos, float interactionStrength);
 #endif

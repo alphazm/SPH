@@ -143,8 +143,6 @@
     <CudaCompile Include="sph.cu" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="MPI.h" />
-    <ClInclude Include="openMP.h" />
     <ClInclude Include="main.h" />
     <ClInclude Include="sph.h" />
     <ClInclude Include="sph.cuh" />

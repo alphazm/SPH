@@ -29,12 +29,6 @@
     <ClInclude Include="main.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="openMP.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="MPI.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="CUDA_main.cpp">

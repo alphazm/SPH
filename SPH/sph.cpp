@@ -2,6 +2,7 @@
 #include <iostream>
 using namespace std;
 
+
 // Poly6 kernel
 float serial_poly6(float r2, float h) {
 	float h2 = h * h;
@@ -37,7 +38,7 @@ float2 serial_ljForce(float2 r, float r_len, float sigma, float epsilon) {
 	return float2(coeff * r.x, coeff * r.y);
 }
 
-void serial_computeDensityPressure(std::vector<Particle>& particles) {
+void serial_computeDensityPressure(std::vector<Particle>& particles, int N) {
 	for (int i = 0; i < N; i++) {
 		Particle& p = particles[i];
 		p.density = 0.0f;
@@ -53,7 +54,7 @@ void serial_computeDensityPressure(std::vector<Particle>& particles) {
 	}
 }
 
-void serial_computeForces(std::vector<Particle>& particles, float2 mousePos, float interactionStrength) {
+void serial_computeForces(std::vector<Particle>& particles, int N, float2 mousePos, float interactionStrength) {
 	for (int i = 0; i < N; i++) {
 		if (!particles[i].valid) continue;
 		Particle& p = particles[i];
@@ -97,7 +98,7 @@ void serial_computeForces(std::vector<Particle>& particles, float2 mousePos, flo
 	}
 }
 
-void serial_integrate(std::vector<Particle>& particles) {
+void serial_integrate(std::vector<Particle>& particles, int N) {
 	for (int i = 0; i < N; i++) {
 		if (!particles[i].valid) continue;
 		Particle& p = particles[i];
@@ -128,7 +129,7 @@ void serial_integrate(std::vector<Particle>& particles) {
 	}
 }
 
-void serial_initSimulation(std::vector<Particle>& particles) {
+void serial_initSimulation(std::vector<Particle>& particles, int N) {
 	particles.resize(N);
 
 	// Calculate grid dimensions
@@ -162,9 +163,9 @@ void serial_initSimulation(std::vector<Particle>& particles) {
 	}
 }
 
-void serial_stepSimulation(std::vector<Particle>& particles, float2 mousePos, float interactionStrength) {
-	serial_computeDensityPressure(particles);
-	serial_computeForces(particles, mousePos, interactionStrength);
-	serial_integrate(particles);
+void serial_stepSimulation(std::vector<Particle>& particles, int N, float2 mousePos, float interactionStrength) {
+	serial_computeDensityPressure(particles,N);
+	serial_computeForces(particles,N, mousePos, interactionStrength);
+	serial_integrate(particles,N);
 	
 }

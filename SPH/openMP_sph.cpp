@@ -14,7 +14,7 @@
 using namespace std;
 using namespace DirectX;
 
-#define N 1024
+
 #define H 0.15f
 #define DT 0.0005f
 #define MASS 0.05f
@@ -40,7 +40,7 @@ struct Particle {
     bool valid;
 };
 
-vector<Particle> particles(N);
+
 XMFLOAT2 mousePos = { 0.0f, 0.0f };
 float interactionStrength = 0.0f;
 bool isPushing = true;
@@ -77,7 +77,7 @@ inline XMFLOAT2 ljForce(XMFLOAT2 r, float r_len, float sigma, float epsilon) {
 }
 
 // Physics
-void computeDensityPressureOMP() {
+void computeDensityPressureOMP(vector<Particle>& particles, int N) {
 #pragma omp parallel for
     for (int i = 0; i < N; ++i) {
         Particle& p = particles[i];
@@ -94,7 +94,7 @@ void computeDensityPressureOMP() {
     }
 }
 
-void computeForcesOMP() {
+void computeForcesOMP(vector<Particle>& particles, int N) {
 #pragma omp parallel for
     for (int i = 0; i < N; ++i) {
         Particle& p = particles[i];
@@ -146,7 +146,7 @@ void computeForcesOMP() {
     }
 }
 
-void initParticles() {
+void initParticles(vector<Particle>& particles, int N) {
     particles.resize(N);
 
     // Calculate grid dimensions
@@ -180,7 +180,7 @@ void initParticles() {
     }
 }
 
-void integrateOMP() {
+void integrateOMP(vector<Particle>& particles, int N) {
 #pragma omp parallel for
     for (int i = 0; i < N; ++i) {
         Particle& p = particles[i];
@@ -204,7 +204,7 @@ void integrateOMP() {
     }
 }
 
-void display() {
+void display(const vector<Particle>& particles) {
     glClear(GL_COLOR_BUFFER_BIT);
 
     // Enable point smoothing for nicer points
@@ -225,10 +225,10 @@ void display() {
     glDisable(GL_POINT_SMOOTH);
 }
 
-void update() {
-    computeDensityPressureOMP();
-    computeForcesOMP();
-    integrateOMP();
+void update(vector<Particle>& particles, int N) {
+    computeDensityPressureOMP(particles, N);
+    computeForcesOMP(particles, N);
+    integrateOMP(particles, N);
 }
 
 // Windows + OpenGL Boilerplate
@@ -248,7 +248,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
-int openMP_main() {
+int openMP_main(int N) {
     HINSTANCE hInstance = GetModuleHandle(nullptr);
     int nCmdShow = SW_SHOW;
 
@@ -277,7 +277,8 @@ int openMP_main() {
     glLoadIdentity();
 
     // Removed glOrtho
-    initParticles();
+    vector<Particle> particles;
+    initParticles(particles, N);
 
     MSG msg;
     auto lastTime = chrono::high_resolution_clock::now();
@@ -292,8 +293,8 @@ int openMP_main() {
             DispatchMessage(&msg);
         }
 
-        update();
-        display();
+        update(particles, N);
+        display(particles);
         SwapBuffers(hdc);
 
         frameCount++;
@@ -316,9 +317,9 @@ int openMP_main() {
     return 0;
 }
 
-float openMP_performance_test() {
+float openMP_performance_test(int N) {
     std::vector<Particle> particles(N);
-    initParticles(); // Use existing initialization
+    initParticles(particles, N); // Use existing initialization
 
     int num_steps = 100;
     int num_runs = 10;
@@ -328,9 +329,9 @@ float openMP_performance_test() {
         auto start_time = std::chrono::high_resolution_clock::now();
 		cout << "Run: " << run + 1 << " / " << num_runs << endl;
         for (int step = 0; step < num_steps; ++step) {
-            computeDensityPressureOMP();
-            computeForcesOMP();
-            integrateOMP();
+            computeDensityPressureOMP(particles, N);
+            computeForcesOMP(particles, N);
+            integrateOMP(particles, N);
 			cout << "\nStep: " << step + 1 << " / " << num_steps << endl;
         }
         auto end_time = std::chrono::high_resolution_clock::now();

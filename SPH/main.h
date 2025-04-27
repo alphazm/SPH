@@ -49,7 +49,11 @@ void renderChar(float x, float y, char c, float scale);
 
 void renderString(float x, float y, const char* str, float scale);
 
-int CUDA_main();
-int serial_main();
-float serial_performance_test();
-float CUDA_performance_test();
+int serial_main(int N);
+float serial_performance_test(int N);
+int openMP_main(int N);
+float openMP_performance_test(int N);
+int CUDA_main(int N);
+float CUDA_performance_test(int N);
+int MPI_main(int N);
+float MPI_performance_test(int N);

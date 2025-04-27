@@ -23,7 +23,7 @@ static void mouseButtonCallback(GLFWwindow* window, int button, int action, int 
     else mouseButtonState = 0;
 }
 
-int CUDA_main(){
+int CUDA_main(int N){
     glfwSetErrorCallback(errorCallback);
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW" << std::endl;
@@ -71,7 +71,7 @@ int CUDA_main(){
     cudaGraphicsGLRegisterBuffer(&cudaVBO, vbo, cudaGraphicsMapFlagsWriteDiscard);
 
     Particle* particles = new Particle[N];
-    initSimulation(particles, cudaVBO);
+    initSimulation(particles,N, cudaVBO);
 
     glClearColor(0.1f, 0.1f, 0.2f, 1.0f);
     //glPointSize(PARTICLE_SIZE); // Use defined particle size
@@ -96,7 +96,7 @@ int CUDA_main(){
         float interactionStrength = (mouseButtonState == 1) ? 50000.0f : (mouseButtonState == 2) ? -50000.0f : 0.0f;
 
         // Update simulation
-        stepSimulation(particles, nullptr, nullptr, nullptr, cudaVBO, mousePos, interactionStrength);
+        stepSimulation(particles,N, nullptr, nullptr, nullptr, cudaVBO, mousePos, interactionStrength);
 
         // Update FPS
         double currentTime = glfwGetTime();

@@ -11,7 +11,7 @@ using namespace std;
 
 #define M_PI 3.141596f
 // Simulation parameters 
-#define N 1024
+
 #define H 0.15f
 #define DT 0.0005f
 #define MASS 0.05f
@@ -92,7 +92,7 @@ Vec2 ljForce(const Vec2& r, float r_len, float sigma, float epsilon) {
 }
 
 // Particle initialization 
-void mpi_initParticles(vector<Particle>& P) {
+void mpi_initParticles(vector<Particle>& P, int N) {
     if (P.size() != N) P.resize(N);
     int cols = static_cast<int>(ceil(sqrtf(static_cast<float>(N))));
     int rows = (N + cols - 1) / cols;
@@ -132,7 +132,7 @@ void renderParticles(const vector<Particle>& P) {
     glEnd();
 }
 
-void mpi_computeStep(vector<Particle>& particles, int start, int end, int N_local,
+void mpi_computeStep(vector<Particle>& particles,int N, int start, int end, int N_local,
     vector<Vec2>& localPos, vector<Vec2>& localVel, vector<Vec2>& allPos, vector<Vec2>& allVel,
     vector<float>& localDens, vector<float>& localPres, vector<float>& allDens, vector<float>& allPres,
     const Vec2& mousePos, float interactionStrength) {
@@ -242,7 +242,7 @@ void mpi_computeStep(vector<Particle>& particles, int start, int end, int N_loca
     }
 }
 
-int MPI_main() {
+int MPI_main(int N) {
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
@@ -262,7 +262,7 @@ int MPI_main() {
     vector<float> allDens(N), allPres(N), localDens(N_local), localPres(N_local);
 
     // Initialize on rank 0 and broadcast
-    if (rank == 0) mpi_initParticles(particles);
+    if (rank == 0) mpi_initParticles(particles,N);
     if (rank == 0) {
         for (int i = 0; i < N; ++i) {
             allPos[i] = particles[i].position;
@@ -343,7 +343,7 @@ int MPI_main() {
         Vec2 mousePos(mousePosX, mousePosY);
 
         // Perform one simulation step
-        mpi_computeStep(particles, start, end, N_local,
+        mpi_computeStep(particles,N, start, end, N_local,
             localPos, localVel, allPos, allVel,
             localDens, localPres, allDens, allPres,
             mousePos, interactionStrength);
@@ -391,11 +391,12 @@ int MPI_main() {
         glfwDestroyWindow(window);
         glfwTerminate();
     }
+	MPI_Barrier(MPI_COMM_WORLD);
     MPI_Finalize();
     return 0;
 }
 
-float MPI_performance_test() {
+float MPI_performance_test(int N) {
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
@@ -413,7 +414,7 @@ float MPI_performance_test() {
     std::vector<Vec2> allPos(N), allVel(N), localPos(N_local), localVel(N_local);
     std::vector<float> allDens(N), allPres(N), localDens(N_local), localPres(N_local);
 
-    if (rank == 0) mpi_initParticles(particles);
+    if (rank == 0) mpi_initParticles(particles,N);
     MPI_Bcast(particles.data(), N * sizeof(Particle), MPI_BYTE, 0, MPI_COMM_WORLD);
 
     int num_steps = 100;
@@ -428,11 +429,11 @@ float MPI_performance_test() {
         double start_time = MPI_Wtime();
         if (rank == 0) cout << "Run: " << run + 1 << " / " << num_runs << endl;
         for (int step = 0; step < num_steps; ++step) {
-            mpi_computeStep(particles, start, end, N_local,
+            mpi_computeStep(particles,N, start, end, N_local,
                 localPos, localVel, allPos, allVel,
                 localDens, localPres, allDens, allPres,
                 mousePos, interactionStrength);
-            if (rank == 0 && (step + 1) % 100 == 0)  // Print every 100 steps
+            if (rank == 0 )  // Print every 100 steps
                 cout << "\nStep: " << step + 1 << " / " << num_steps << endl;
         }
         double end_time = MPI_Wtime();

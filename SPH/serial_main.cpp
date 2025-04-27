@@ -24,7 +24,7 @@ static void mouseButtonCallback(GLFWwindow* window, int button, int action, int 
 	else mouseButtonState = 0;
 }
 
-int serial_main() {
+int serial_main(int N) {
 	glfwSetErrorCallback(errorCallback);
 	if (!glfwInit()) {
 		std::cerr << "Failed to initialize GLFW" << std::endl;
@@ -52,7 +52,7 @@ int serial_main() {
 	}
 
 	vector<Particle> particles;
-	serial_initSimulation(particles);
+	serial_initSimulation(particles,N);
 
 	glClearColor(0.1f, 0.1f, 0.2f, 1.0f);
 	glMatrixMode(GL_PROJECTION);
@@ -74,7 +74,7 @@ int serial_main() {
 		float2 mousePos = { simX, simY };
 		float interactionStrength = (mouseButtonState == 1) ? 50000.0f : (mouseButtonState == 2) ? -50000.0f : 0.0f;
 
-		serial_stepSimulation(particles, mousePos, interactionStrength);
+		serial_stepSimulation(particles,N, mousePos, interactionStrength);
 
 		double currentTime = glfwGetTime();
 		frameCount++;
@@ -117,9 +117,9 @@ int serial_main() {
 }
 
 
-float serial_performance_test() {
+float serial_performance_test(int N) {
 	std::vector<Particle> particles;
-	serial_initSimulation(particles);  // Initialize particles
+	serial_initSimulation(particles,N);  // Initialize particles
 
 	int num_steps = 100;  // Number of simulation steps per run
 	int num_runs = 10;     // Number of runs to average over
@@ -133,7 +133,7 @@ float serial_performance_test() {
 		auto start_time = std::chrono::high_resolution_clock::now();
 		cout << "Run: " << run + 1 << " / " << num_runs << endl;
 		for (int step = 0; step < num_steps; ++step) {
-			serial_stepSimulation(particles, mousePos, interactionStrength);
+			serial_stepSimulation(particles,N, mousePos, interactionStrength);
 			cout << "\nStep: " << step +1 << " / " << num_steps << endl;
 		}
 		auto end_time = std::chrono::high_resolution_clock::now();

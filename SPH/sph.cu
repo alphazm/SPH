@@ -45,7 +45,7 @@ __device__ float2 ljForce(float2 r, float r_len, float sigma, float epsilon) {
     return make_float2(coeff * r.x, coeff * r.y);
 }
 
-__global__ void computeDensityPressure(Particle* particles, int* grid, int* cellStart, int* cellEnd) {
+__global__ void computeDensityPressure(Particle* particles,int N, int* grid, int* cellStart, int* cellEnd) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
@@ -65,7 +65,7 @@ __global__ void computeDensityPressure(Particle* particles, int* grid, int* cell
     if (p.pressure < 0.0f) p.pressure = 0.0f;
 }
 
-__global__ void computeForces(Particle* particles, int* grid, int* cellStart, int* cellEnd, float2 mousePos, float interactionStrength) {
+__global__ void computeForces(Particle* particles,int N, int* grid, int* cellStart, int* cellEnd, float2 mousePos, float interactionStrength) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N || !particles[i].valid) return;
 
@@ -128,7 +128,7 @@ __global__ void computeForces(Particle* particles, int* grid, int* cellStart, in
     p.vel.y += DT * force.y / p.density;
 }
 
-__global__ void integrate(Particle* particles) {
+__global__ void integrate(Particle* particles,int N) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
 
@@ -163,11 +163,11 @@ __global__ void integrate(Particle* particles) {
     }
 }
 
-void initSimulation(Particle* particles, cudaGraphicsResource* cudaVBO) {
+void initSimulation(Particle* particles,int N, cudaGraphicsResource* cudaVBO) {
     if (d_particles == nullptr) {
         CUDA_CHECK(cudaMalloc(&d_particles, N * sizeof(Particle)));
     }
-    Particle h_particles[N];
+    Particle* h_particles = new Particle[N];
 
     // Calculate grid dimensions
     int cols = static_cast<int>(std::ceil(std::sqrt(N))); // Number of columns
@@ -204,7 +204,7 @@ void initSimulation(Particle* particles, cudaGraphicsResource* cudaVBO) {
     CUDA_CHECK(cudaMemcpy(particles, d_particles, N * sizeof(Particle), cudaMemcpyDeviceToHost));
 }
 
-__global__ void updateVBO(float2* vboPtr, Particle* particles) {
+__global__ void updateVBO(float2* vboPtr,int N, Particle* particles) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= N) return;
     if (particles[i].valid) {
@@ -215,14 +215,13 @@ __global__ void updateVBO(float2* vboPtr, Particle* particles) {
     }
 }
 
-void stepSimulation(Particle* particles, int* grid, int* cellStart, int* cellEnd, cudaGraphicsResource* cudaVBO, float2 mousePos, float interactionStrength) {
-    int threadsPerBlock = 128;
-    int blocks = (N + threadsPerBlock - 1) / threadsPerBlock
-        ;
+void stepSimulation(Particle* particles,int N, int* grid, int* cellStart, int* cellEnd, cudaGraphicsResource* cudaVBO, float2 mousePos, float interactionStrength) {
+    int threadsPerBlock = 1024;
+    int blocks = (N + threadsPerBlock - 1) / threadsPerBlock;
 
-    computeDensityPressure << <blocks, threadsPerBlock >> > (d_particles, nullptr, nullptr, nullptr);
-    computeForces << <blocks, threadsPerBlock >> > (d_particles, nullptr, nullptr, nullptr, mousePos, interactionStrength);
-    integrate << <blocks, threadsPerBlock >> > (d_particles);
+    computeDensityPressure << <blocks, threadsPerBlock >> > (d_particles, N, nullptr, nullptr, nullptr);
+    computeForces << <blocks, threadsPerBlock >> > (d_particles, N, nullptr, nullptr, nullptr, mousePos, interactionStrength);
+    integrate << <blocks, threadsPerBlock >> > (d_particles, N);
     CUDA_CHECK(cudaDeviceSynchronize());
 
     // Update VBO only for valid particles
@@ -230,17 +229,17 @@ void stepSimulation(Particle* particles, int* grid, int* cellStart, int* cellEnd
     size_t size;
     CUDA_CHECK(cudaGraphicsMapResources(1, &cudaVBO, 0));
     CUDA_CHECK(cudaGraphicsResourceGetMappedPointer((void**)&vboPtr, &size, cudaVBO));
-	updateVBO << <blocks, threadsPerBlock >> > (vboPtr, d_particles);
+    updateVBO << <blocks, threadsPerBlock >> > (vboPtr,N, d_particles);
     CUDA_CHECK(cudaGraphicsUnmapResources(1, &cudaVBO, 0));
 
     CUDA_CHECK(cudaMemcpy(particles, d_particles, N * sizeof(Particle), cudaMemcpyDeviceToHost));
 }
 
-float CUDA_performance_test() {
+float CUDA_performance_test(int N) {
     Particle* d_particles;
     cudaMalloc(&d_particles, N * sizeof(Particle));
     Particle* h_particles = new Particle[N];
-    initSimulation(h_particles, nullptr); // Initialize without VBO
+    initSimulation(h_particles,N, nullptr); // Initialize without VBO
     cudaMemcpy(d_particles, h_particles, N * sizeof(Particle), cudaMemcpyHostToDevice);
 
     int num_steps = 100;
@@ -253,9 +252,9 @@ float CUDA_performance_test() {
         auto start_time = std::chrono::high_resolution_clock::now();
 		cout << "Run " << run + 1 << " of " << num_runs << endl;
         for (int step = 0; step < num_steps; ++step) {
-            computeDensityPressure << <blocks, threadsPerBlock >> > (d_particles, nullptr, nullptr, nullptr);
-            computeForces << <blocks, threadsPerBlock >> > (d_particles, nullptr, nullptr, nullptr, make_float2(0, 0), 0.0f);
-            integrate << <blocks, threadsPerBlock >> > (d_particles);
+            computeDensityPressure << <blocks, threadsPerBlock >> > (d_particles, N, nullptr, nullptr, nullptr);
+            computeForces << <blocks, threadsPerBlock >> > (d_particles, N, nullptr, nullptr, nullptr, make_float2(0, 0), 0.0f);
+            integrate << <blocks, threadsPerBlock >> > (d_particles, N);
             cudaDeviceSynchronize();
 			cout << "\nStep " << step + 1 << " of " << num_steps << endl;
         }
