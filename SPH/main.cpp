@@ -1,5 +1,5 @@
 #include "main.h"
-#include "MPI.h"
+#include <mpi.h>
 #include <iostream>
 using namespace std;
 int method = 0;
