@@ -365,12 +365,11 @@ float CUDA_performance_test(int N) {
     }
 
     float avg_ups = static_cast<float>(total_ups / num_runs);
-
+    
     cudaFree(d_particles);
     cudaFree(d_cellIndices);
     cudaFree(d_cellStart);
     cudaFree(d_cellEnd);
-
     return avg_ups;
 }
 

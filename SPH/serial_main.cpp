@@ -130,6 +130,7 @@ float serial_performance_test(int N) {
 	float interactionStrength = 0.0f;
 
 	for (int run = 0; run < num_runs; ++run) {
+		serial_initSimulation(particles, N);
 		auto start_time = std::chrono::high_resolution_clock::now();
 		cout << "Run: " << run + 1 << " / " << num_runs << endl;
 		for (int step = 0; step < num_steps; ++step) {
@@ -140,6 +141,7 @@ float serial_performance_test(int N) {
 		std::chrono::duration<double> elapsed = end_time - start_time;
 		double ups = num_steps / elapsed.count();
 		total_ups += ups;
+	
 	}
 
 	float avg_ups = total_ups / num_runs;
