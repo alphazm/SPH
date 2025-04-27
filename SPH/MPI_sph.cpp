@@ -6,8 +6,11 @@
 #include <vector>
 #include <cmath>
 #include <iostream>
+#include <unordered_map>
 
 using namespace std;
+
+typedef std::unordered_map<int, std::vector<int>> Grid;
 
 #define M_PI 3.141596f
 // Simulation parameters 
@@ -91,6 +94,24 @@ Vec2 ljForce(const Vec2& r, float r_len, float sigma, float epsilon) {
     return Vec2(coeff * r.x, coeff * r.y);
 }
 
+// Compute a unique cell index from a position
+inline int MPI_getCellIndex(float x, float y, float h) {
+    int ix = static_cast<int>(x / h);
+    int iy = static_cast<int>(y / h);
+    return ix + iy * (static_cast<int>(2.0f / h) + 1);
+}
+
+// Build the grid mapping each cell to the list of particle indices
+void MPI_buildGrid(const std::vector<Vec2>& positions, Grid& grid, float h) {
+    grid.clear();
+    int N = positions.size();
+    for (int i = 0; i < N; ++i) {
+        const Vec2& p = positions[i];
+        int idx = MPI_getCellIndex(p.x, p.y, h);
+        grid[idx].push_back(i);
+    }
+}
+
 // Particle initialization 
 void mpi_initParticles(vector<Particle>& P, int N) {
     if (P.size() != N) P.resize(N);
@@ -146,18 +167,33 @@ void mpi_computeStep(vector<Particle>& particles,int N, int start, int end, int 
     MPI_Allgather(localVel.data(), N_local * sizeof(Vec2), MPI_BYTE,
         allVel.data(), N_local * sizeof(Vec2), MPI_BYTE, MPI_COMM_WORLD);
 
+    Grid grid;
+    MPI_buildGrid(allPos, grid, H);
+
     // 2) Compute density & pressure (local, matches serial_computeDensityPressure)
     for (int idx = start; idx < end; ++idx) {
-        float dens = 0;
-        for (int j = 0; j < N; ++j) {
-            Vec2 r = particles[idx].position - allPos[j];
-            float r2 = r.x * r.x + r.y * r.y;
-            if (r2 < H * H) dens += MASS * mpi_poly6(r2, H);
+        const Vec2& pi = particles[idx].position;
+        int ix = static_cast<int>(pi.x / H);
+        int iy = static_cast<int>(pi.y / H);
+        float dens = 0.0f;
+        for (int dx = -1; dx <= 1; ++dx) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                int cell = MPI_getCellIndex((ix + dx) * H, (iy + dy) * H, H);
+                auto it = grid.find(cell);
+                if (it == grid.end()) continue;
+                for (int j : it->second) {
+                    Vec2 rij = pi - allPos[j];
+                    float r2 = rij.x * rij.x + rij.y * rij.y;
+                    if (r2 < H * H) {
+                        dens += MASS * mpi_poly6(r2, H);
+                    }
+                }
+            }
         }
         localDens[idx - start] = dens;
         particles[idx].density = dens;
         float p = STIFFNESS * (dens - REST_DENSITY);
-        localPres[idx - start] = (p > 0 ? p : 0);
+        localPres[idx - start] = (p > 0.0f ? p : 0.0f);
         particles[idx].pressure = localPres[idx - start];
     }
     MPI_Allgather(localDens.data(), N_local, MPI_FLOAT,
@@ -168,22 +204,32 @@ void mpi_computeStep(vector<Particle>& particles,int N, int start, int end, int 
     // 3) Compute forces & integrate (local, matches serial_computeForces and serial_integrate)
     for (int idx = start; idx < end; ++idx) {
         if (!particles[idx].valid) continue;
-        Vec2 force(0, 0);
-        for (int j = 0; j < N; ++j) {
-            if (j == idx || !particles[j].valid) continue;
-            Vec2 dr = particles[idx].position - allPos[j];
-            float r2 = dr.x * dr.x + dr.y * dr.y;
-            if (r2 >= H * H) continue;
-            float r_len = sqrtf(r2);
-            Vec2 grad = spikyGrad(dr, r_len, H);
-            float pt = (particles[idx].pressure + allPres[j]) / (2 * allDens[j]);
-            Vec2 pForce = Vec2(-MASS * pt * grad.x, -MASS * pt * grad.y);
-            Vec2 rv = allVel[j] - particles[idx].velocity;
-            float visc = VISCOSITY * MASS * mpi_viscosityLaplacian(r_len, H) / allDens[j];
-            Vec2 vForce = Vec2(visc * rv.x, visc * rv.y);
-            Vec2 lj = ljForce(dr, r_len, SIGMA, EPSILON);
-            force.x += pForce.x + vForce.x + lj.x;
-            force.y += pForce.y + vForce.y + lj.y;
+        const Vec2& pi = particles[idx].position;
+        Vec2 force(0.0f, 0.0f);
+        int ix = static_cast<int>(pi.x / H);
+        int iy = static_cast<int>(pi.y / H);
+        for (int dx = -1; dx <= 1; ++dx) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                int cell = MPI_getCellIndex((ix + dx) * H, (iy + dy) * H, H);
+                auto it = grid.find(cell);
+                if (it == grid.end()) continue;
+                for (int j : it->second) {
+                    if (j == idx || !particles[j].valid) continue;
+                    Vec2 dr = pi - allPos[j];
+                    float r2 = dr.x * dr.x + dr.y * dr.y;
+                    if (r2 >= H * H) continue;
+                    float rlen = sqrtf(r2);
+                    Vec2 grad = spikyGrad(dr, rlen, H);
+                    float pt = (particles[idx].pressure + allPres[j]) / (2.0f * allDens[j]);
+                    Vec2 pF(-MASS * pt * grad.x, -MASS * pt * grad.y);
+                    Vec2 rv = allVel[j] - particles[idx].velocity;
+                    float visc = VISCOSITY * MASS * mpi_viscosityLaplacian(rlen, H) / allDens[j];
+                    Vec2 vF(visc * rv.x, visc * rv.y);
+                    Vec2 lj = ljForce(dr, rlen, SIGMA, EPSILON);
+                    force.x += pF.x + vF.x + lj.x;
+                    force.y += pF.y + vF.y + lj.y;
+                }
+            }
         }
         force.y -= 10.0f * particles[idx].density; // Gravity
 

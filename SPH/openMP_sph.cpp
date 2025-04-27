@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <DirectXMath.h>
 #include <iostream>
+#include <unordered_map>
 
 #pragma comment (lib, "OpenGL32.lib")
 
@@ -45,6 +46,28 @@ XMFLOAT2 mousePos = { 0.0f, 0.0f };
 float interactionStrength = 0.0f;
 bool isPushing = true;
 
+// Grid type definition
+using Grid = std::unordered_map<int, std::vector<int>>;
+
+// Helper function to compute cell index from position
+int OMP_getCellIndex(float x, float y, float h) {
+    int ix = static_cast<int>(x / h);
+    int iy = static_cast<int>(y / h);
+    return ix + iy * static_cast<int>(2.0 / h + 1);
+}
+
+// Build the grid by assigning particles to cells
+void OMP_buildGridOMP(const std::vector<Particle>& particles, Grid& grid, float h) {
+    grid.clear();
+#pragma omp parallel for
+    for (int i = 0; i < particles.size(); ++i) {
+        const auto& p = particles[i];
+        int cellIndex = OMP_getCellIndex(p.pos.x, p.pos.y, h);
+#pragma omp critical
+        grid[cellIndex].push_back(i);
+    }
+}
+
 // Kernel functions
 inline float openMP_poly6(float r2, float h) {
     float h2 = h * h;
@@ -78,44 +101,69 @@ inline XMFLOAT2 ljForce(XMFLOAT2 r, float r_len, float sigma, float epsilon) {
 
 // Physics
 void computeDensityPressureOMP(vector<Particle>& particles, int N) {
+    Grid grid;
+    OMP_buildGridOMP(particles, grid, H);
 #pragma omp parallel for
     for (int i = 0; i < N; ++i) {
         Particle& p = particles[i];
         p.density = 0.0f;
-        for (int j = 0; j < N; ++j) {
-            XMFLOAT2 r = { p.pos.x - particles[j].pos.x, p.pos.y - particles[j].pos.y };
-            float r2 = r.x * r.x + r.y * r.y;
-            if (r2 < H * H) {
-                p.density += MASS * openMP_poly6(r2, H);
+        int ix = static_cast<int>(p.pos.x / H);
+        int iy = static_cast<int>(p.pos.y / H);
+        // Check the particle's cell and its 8 neighbors
+        for (int dx = -1; dx <= 1; ++dx) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                int neighborX = ix + dx;
+                int neighborY = iy + dy;
+                int cellIndex = OMP_getCellIndex(neighborX * H, neighborY * H, H);
+                if (grid.find(cellIndex) != grid.end()) {
+                    for (int j : grid[cellIndex]) {
+                        XMFLOAT2 r = { p.pos.x - particles[j].pos.x, p.pos.y - particles[j].pos.y };
+                        float r2 = r.x * r.x + r.y * r.y;
+                        if (r2 < H * H) {
+                            p.density += MASS * openMP_poly6(r2, H);
+                        }
+                    }
+                }
             }
         }
         p.pressure = STIFFNESS * (p.density - REST_DENSITY);
         if (p.pressure < 0.0f) p.pressure = 0.0f;
     }
 }
-
 void computeForcesOMP(vector<Particle>& particles, int N) {
+    Grid grid;
+    OMP_buildGridOMP(particles, grid, H);
 #pragma omp parallel for
     for (int i = 0; i < N; ++i) {
         Particle& p = particles[i];
         if (!p.valid) continue;
 
         XMFLOAT2 force = { 0.0f, 0.0f };
-
-        for (int j = 0; j < N; ++j) {
-            if (i == j || !particles[j].valid) continue;
-            XMFLOAT2 r = { p.pos.x - particles[j].pos.x, p.pos.y - particles[j].pos.y };
-            float r2 = r.x * r.x + r.y * r.y;
-            if (r2 >= H * H) continue;
-            float r_len = sqrtf(r2);
-            XMFLOAT2 grad = spikyGrad(r, r_len, H);
-            float pressureTerm = (p.pressure + particles[j].pressure) / (2.0f * particles[j].density);
-            XMFLOAT2 pressureForce = { -MASS * pressureTerm * grad.x, -MASS * pressureTerm * grad.y };
-            XMFLOAT2 relVel = { particles[j].vel.x - p.vel.x, particles[j].vel.y - p.vel.y };
-            float viscForce = VISCOSITY * MASS * openMP_viscosityLaplacian(r_len, H) / particles[j].density;
-            XMFLOAT2 ljF = ljForce(r, r_len, SIGMA, EPSILON);
-            force.x += pressureForce.x + viscForce * relVel.x + ljF.x;
-            force.y += pressureForce.y + viscForce * relVel.y + ljF.y;
+        int ix = static_cast<int>(p.pos.x / H);
+        int iy = static_cast<int>(p.pos.y / H);
+        for (int dx = -1; dx <= 1; ++dx) {
+            for (int dy = -1; dy <= 1; ++dy) {
+                int neighborX = ix + dx;
+                int neighborY = iy + dy;
+                int cellIndex = OMP_getCellIndex(neighborX * H, neighborY * H, H);
+                if (grid.find(cellIndex) != grid.end()) {
+                    for (int j : grid[cellIndex]) {
+                        if (i == j || !particles[j].valid) continue;
+                        XMFLOAT2 r = { p.pos.x - particles[j].pos.x, p.pos.y - particles[j].pos.y };
+                        float r2 = r.x * r.x + r.y * r.y;
+                        if (r2 >= H * H) continue;
+                        float r_len = sqrtf(r2);
+                        XMFLOAT2 grad = spikyGrad(r, r_len, H);
+                        float pressureTerm = (p.pressure + particles[j].pressure) / (2.0f * particles[j].density);
+                        XMFLOAT2 pressureForce = { -MASS * pressureTerm * grad.x, -MASS * pressureTerm * grad.y };
+                        XMFLOAT2 relVel = { particles[j].vel.x - p.vel.x, particles[j].vel.y - p.vel.y };
+                        float viscForce = VISCOSITY * MASS * openMP_viscosityLaplacian(r_len, H) / particles[j].density;
+                        XMFLOAT2 ljF = ljForce(r, r_len, SIGMA, EPSILON);
+                        force.x += pressureForce.x + viscForce * relVel.x + ljF.x;
+                        force.y += pressureForce.y + viscForce * relVel.y + ljF.y;
+                    }
+                }
+            }
         }
 
         force.y -= 10.0f * p.density;

@@ -2,6 +2,24 @@
 #include <iostream>
 using namespace std;
 
+// Grid type definition
+using Grid = std::unordered_map<int, std::vector<int>>;
+
+// Helper function to compute cell index from position
+int serial_getCellIndex(float x, float y, float h) {
+	int ix = static_cast<int>(x / h);
+	int iy = static_cast<int>(y / h);
+	return ix + iy * static_cast<int>(2.0 / h + 1);
+}
+
+void serial_buildGrid(const std::vector<Particle>& particles, Grid& grid, float h) {
+	grid.clear();
+	for (int i = 0; i < particles.size(); ++i) {
+		const auto& p = particles[i];
+		int cellIndex = serial_getCellIndex(p.pos.x, p.pos.y, h);
+		grid[cellIndex].push_back(i);
+	}
+}
 
 // Poly6 kernel
 float serial_poly6(float r2, float h) {
@@ -39,14 +57,28 @@ float2 serial_ljForce(float2 r, float r_len, float sigma, float epsilon) {
 }
 
 void serial_computeDensityPressure(std::vector<Particle>& particles, int N) {
+	Grid grid;
+	serial_buildGrid(particles, grid, H);
 	for (int i = 0; i < N; i++) {
 		Particle& p = particles[i];
 		p.density = 0.0f;
-		for (int j = 0; j < N; j++) {
-			float2 r = { p.pos.x - particles[j].pos.x, p.pos.y - particles[j].pos.y };
-			float r2 = r.x * r.x + r.y * r.y;
-			if (r2 < H * H) {
-				p.density += MASS * serial_poly6(r2, H);
+		int ix = static_cast<int>(p.pos.x / H);
+		int iy = static_cast<int>(p.pos.y / H);
+		// Check the particle's cell and its 8 neighbors
+		for (int dx = -1; dx <= 1; ++dx) {
+			for (int dy = -1; dy <= 1; ++dy) {
+				int neighborX = ix + dx;
+				int neighborY = iy + dy;
+				int cellIndex = serial_getCellIndex(neighborX * H, neighborY * H, H);
+				if (grid.find(cellIndex) != grid.end()) {
+					for (int j : grid[cellIndex]) {
+						float2 r = { p.pos.x - particles[j].pos.x, p.pos.y - particles[j].pos.y };
+						float r2 = r.x * r.x + r.y * r.y;
+						if (r2 < H * H) {
+							p.density += MASS * serial_poly6(r2, H);
+						}
+					}
+				}
 			}
 		}
 		p.pressure = STIFFNESS * (p.density - REST_DENSITY);
@@ -55,24 +87,38 @@ void serial_computeDensityPressure(std::vector<Particle>& particles, int N) {
 }
 
 void serial_computeForces(std::vector<Particle>& particles, int N, float2 mousePos, float interactionStrength) {
+	Grid grid;
+	serial_buildGrid(particles, grid, H);
 	for (int i = 0; i < N; i++) {
 		if (!particles[i].valid) continue;
 		Particle& p = particles[i];
 		float2 force = { 0.0f, 0.0f };
-		for (int j = 0; j < N; j++) {
-			if (j == i || !particles[j].valid) continue;
-			float2 r = { p.pos.x - particles[j].pos.x, p.pos.y - particles[j].pos.y };
-			float r2 = r.x * r.x + r.y * r.y;
-			if (r2 >= H * H) continue;
-			float r_len = sqrtf(r2);
-			float2 grad = serial_spikyGrad(r, r_len, H);
-			float pressureTerm = (p.pressure + particles[j].pressure) / (2.0f * particles[j].density);
-			float2 pressureForce = { -MASS * pressureTerm * grad.x, -MASS * pressureTerm * grad.y };
-			float2 relVel = { particles[j].vel.x - p.vel.x, particles[j].vel.y - p.vel.y };
-			float viscForce = VISCOSITY * MASS * serial_viscosityLaplacian(r_len, H) / particles[j].density;
-			float2 ljF = serial_ljForce(r, r_len, SIGMA, EPSILON);
-			force.x += pressureForce.x + viscForce * relVel.x + ljF.x;
-			force.y += pressureForce.y + viscForce * relVel.y + ljF.y;
+		int ix = static_cast<int>(p.pos.x / H);
+		int iy = static_cast<int>(p.pos.y / H);
+		// Check the particle's cell and its 8 neighbors
+		for (int dx = -1; dx <= 1; ++dx) {
+			for (int dy = -1; dy <= 1; ++dy) {
+				int neighborX = ix + dx;
+				int neighborY = iy + dy;
+				int cellIndex = serial_getCellIndex(neighborX * H, neighborY * H, H);
+				if (grid.find(cellIndex) != grid.end()) {
+					for (int j : grid[cellIndex]) {
+						if (j == i || !particles[j].valid) continue;
+						float2 r = { p.pos.x - particles[j].pos.x, p.pos.y - particles[j].pos.y };
+						float r2 = r.x * r.x + r.y * r.y;
+						if (r2 >= H * H) continue;
+						float r_len = sqrtf(r2);
+						float2 grad = serial_spikyGrad(r, r_len, H);
+						float pressureTerm = (p.pressure + particles[j].pressure) / (2.0f * particles[j].density);
+						float2 pressureForce = { -MASS * pressureTerm * grad.x, -MASS * pressureTerm * grad.y };
+						float2 relVel = { particles[j].vel.x - p.vel.x, particles[j].vel.y - p.vel.y };
+						float viscForce = VISCOSITY * MASS * serial_viscosityLaplacian(r_len, H) / particles[j].density;
+						float2 ljF = serial_ljForce(r, r_len, SIGMA, EPSILON);
+						force.x += pressureForce.x + viscForce * relVel.x + ljF.x;
+						force.y += pressureForce.y + viscForce * relVel.y + ljF.y;
+					}
+				}
+			}
 		}
 		force.y -= 10.0f * p.density;
 		if (interactionStrength != 0.0f) {
